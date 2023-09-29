@@ -1,0 +1,90 @@
+---
+title: "Quiz 8"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ISLR)
+library(pROC)
+library(glmnet)
+```
+
+## 5-7
+
+```{r, warning=FALSE}
+#Creating Model
+model8 = glm(formula = Purchase ~ ., family = binomial, data = Caravan[1001:5822, ])
+#Prediction #5
+pred8 = predict(model8, newdata = Caravan[1:1000,1:85], type = "response")
+
+#Checking Misclassification #6
+pred8 = ifelse(pred8 >= 0.25, "Yes", "No")
+#Table For Comparison
+table(Caravan$Purchase[1:1000], pred8)
+
+#AUC Calculation #7
+pred8 = predict(model8, newdata = Caravan[1:1000,1:85], type = "response")
+auc(Caravan$Purchase[1:1000], pred8)
+```
+
+## 8-11
+
+```{r, warning=FALSE}
+#Creating temporary intercept only model
+temp = glm(formula = Purchase ~ 1, family = binomial, data = Caravan[1001:5822, ])
+
+#Creating Model #8
+model8A = step(temp, scope = formula(model8), direction = "forward")
+summary(model8A)
+#Prediction #9
+pred8A = predict(model8A, newdata = Caravan[1:1000,1:85], type = "response")
+
+#Checking Misclassification #10
+pred8A = ifelse(pred8A >= 0.25, "Yes", "No")
+#Table For Comparison
+table(Caravan$Purchase[1:1000], pred8A)
+
+#AUC Calculation #11
+pred8A = predict(model8A, newdata = Caravan[1:1000,1:85], type = "response")
+auc(Caravan$Purchase[1:1000], pred8A)
+```
+
+# 12-15
+
+```{r, warning=FALSE}
+#Creating Model #12
+model8B = step(temp, scope = formula(model8), direction = "forward", k = log(4822))
+summary(model8B)
+#Prediction #13
+pred8B = predict(model8B, newdata = Caravan[1:1000,1:85], type = "response")
+
+#Checking Misclassification #14
+pred8B = ifelse(pred8B >= 0.25, "Yes", "No")
+#Table For Comparison
+table(Caravan$Purchase[1:1000], pred8B)
+
+#AUC Calculation #15
+pred8B = predict(model8B, newdata = Caravan[1:1000,1:85], type = "response")
+auc(Caravan$Purchase[1:1000], pred8B)
+```
+
+# 16-19
+
+```{r, warning=FALSE}
+#Creating Model #16
+model8C = glmnet(Caravan[1001:5822,1:85],Caravan[1001:5822,86],family = "binomial", alpha = 1,
+                 lambda = 0.004)
+coef(model8C)
+#Prediction #17
+pred8C = predict(model8C, newx = as.matrix(Caravan[1:1000,1:85]), s = 0.004, type = "response")
+
+#Checking Misclassification #18
+pred8C = ifelse(pred8C >= 0.25, "Yes", "No")
+#Table For Comparison
+table(Caravan$Purchase[1:1000], pred8C)
+
+#AUC Calculation #19
+pred8C = predict(model8C, newx = as.matrix(Caravan[1:1000,1:85]), type = "response")
+auc(Caravan$Purchase[1:1000], pred8C)
+```

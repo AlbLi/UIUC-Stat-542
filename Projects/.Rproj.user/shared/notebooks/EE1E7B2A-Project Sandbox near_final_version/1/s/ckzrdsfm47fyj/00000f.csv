@@ -1,0 +1,5 @@
+"0","#Paul PC"
+"0","#Beijing <- read.csv(""~/Classes/STAT429 (UIUC)/Project/Data Sets/BeijingPM20100101_20151231.csv"","
+"0","#                    stringsAsFactors=TRUE)"
+"0","#Paul MacOS"
+"0","Beijing <- read.csv(""BeijingPM20100101_20151231.csv"", stringsAsFactors=TRUE)"

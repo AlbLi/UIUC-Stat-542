@@ -1,0 +1,109 @@
+---
+title: "Quiz 9"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(e1071)
+```
+
+## 6-8
+
+```{r}
+#Import Data
+spam = read.table(file="https://web.stanford.edu/~hastie/ElemStatLearn/datasets/spam.data")
+#Renaming Y variable to Y in data
+names(spam)[58] = "Y"
+#Changing Y to be a factor for classification SVM
+spam$Y = as.factor(spam$Y)
+#Creating testing and training data
+testID = c(1:100,1901:1960)
+spam.test = spam[testID,]
+spam.train = spam[-testID,]
+# Linear SVM C = 1
+svmfit=svm(Y ~., kernel="linear", data=spam.train, cost=1)
+summary(svmfit) #6
+table(spam.train$Y, svmfit$fitted)
+#7
+(179+112)
+#8
+svmpred=predict(svmfit, newdata=spam.test)
+table(spam.test$Y, svmpred)
+(12+2)
+```
+
+## 9-11
+
+```{r}
+# Linear SVM C = 10
+svmfit=svm(Y ~., kernel="linear", data=spam.train, cost=10)
+summary(svmfit) #9
+table(spam.train$Y, svmfit$fitted)
+#10
+(178+110)
+#11
+svmpred=predict(svmfit, newdata=spam.test)
+table(spam.test$Y, svmpred)
+(11+3)
+```
+
+## 12-14
+
+```{r}
+# Linear SVM C = 50
+svmfit=svm(Y ~., kernel="linear", data=spam.train, cost=50)
+summary(svmfit) #12
+table(spam.train$Y, svmfit$fitted)
+#13
+(179+112)
+#14
+svmpred=predict(svmfit, newdata=spam.test)
+table(spam.test$Y, svmpred)
+(11+3)
+```
+
+## 15-17
+
+```{r}
+# Linear SVM C = 1
+svmfit=svm(Y ~., data=spam.train, cost=1)
+summary(svmfit) #15
+table(spam.train$Y, svmfit$fitted)
+#16
+(147+85)
+#17
+svmpred=predict(svmfit, newdata=spam.test)
+table(spam.test$Y, svmpred)
+(10+4)
+```
+
+## 18-20
+
+```{r}
+# Linear SVM C = 10
+svmfit=svm(Y ~., data=spam.train, cost=10)
+summary(svmfit) #18
+table(spam.train$Y, svmfit$fitted)
+#19
+(47+99)
+#20
+svmpred=predict(svmfit, newdata=spam.test)
+table(spam.test$Y, svmpred)
+(11+4)
+```
+
+## 21-23
+
+```{r}
+# Linear SVM C = 50
+svmfit=svm(Y ~., data=spam.train, cost=50)
+summary(svmfit) #21
+table(spam.train$Y, svmfit$fitted)
+#22
+(63+27)
+#23
+svmpred=predict(svmfit, newdata=spam.test)
+table(spam.test$Y, svmpred)
+(14+3)
+```

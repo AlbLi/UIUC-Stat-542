@@ -1,0 +1,8 @@
+"0","suppressMessages(library(astsa))"
+"0","suppressMessages(library(fGarch))"
+"0","suppressMessages(library(fpp2))"
+"0","suppressMessages(library(latex2exp))"
+"0","suppressMessages(library(tidyverse))"
+"0","suppressMessages(library(TSA))"
+"0","suppressMessages(library(tseries))"
+"0","suppressMessages(library(xts))"

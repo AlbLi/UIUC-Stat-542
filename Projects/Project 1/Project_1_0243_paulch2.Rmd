@@ -1,0 +1,318 @@
+---
+title: "(PSL) Project 1"
+date: "Fall 2022"
+author: "Paul Holaway (paulch2), Albert Li (xiangl9), & Matt Schroeder (mas5)"
+---
+
+## Creating The Data
+
+```{r}
+# Note: will have to change this depending on who is running the file
+
+# Paul PC
+tm = proc.time()
+data <- read.csv("~/Classes/STAT542 (UIUC)/Projects/Project 1/Ames_data.csv",
+                 stringsAsFactors = TRUE)
+
+testIDs <- read.table("~/Classes/STAT542 (UIUC)/Projects/Project 1/project1_testIDs.dat")
+
+# Paul Mac
+#data <- read.csv("~/Desktop/Courses/STAT542 (UIUC)/Projects/Project 1/Ames_data.csv", 
+                 #stringsAsFactors=TRUE)
+#testIDs <- read.table("~/Desktop/Courses/STAT542 (UIUC)/Projects/Project 1/project1_testIDs.dat")
+
+# Matt
+#data <- read.csv("~/Downloads/Ames_data.csv", stringsAsFactors=TRUE, header = T)
+#testIDs <- read.table("~/Downloads/project1_testIDs.dat")
+j <- 1
+train <- data[-testIDs[,j], ]
+test <- data[testIDs[,j], ]
+test.y <- test[, c(1, 83)]
+test <- test[, -83]
+#Exporting the Data
+write.csv(train,"train.csv",row.names=FALSE)
+write.csv(test, "test.csv",row.names=FALSE)
+write.csv(test.y,"test_y.csv",row.names=FALSE)
+as.numeric((proc.time() - tm)[3])
+```
+
+## Loading the necessary libraries
+
+```{r}
+library(fastDummies)
+library(gbm)
+library(glmnet)
+library(tidyverse)
+```
+
+## Loading and Processing The Training Data
+
+```{r}
+#Importing the training data
+train <- read.csv("train.csv")
+#Log-transforming the sale price
+train$Sale_Price = log(train$Sale_Price)
+#Renaming Sale_Price to log_Sale_Price and rearranging the data such that log_Sale_Price
+#is the first column.
+train <- train %>% rename(log_Sale_Price = "Sale_Price") %>%
+                   select(log_Sale_Price, everything())
+#Filling in NA values with 0
+train[is.na(train)] <- 0
+#Dummy Coding of Categorical Variables and Factors
+new_train = dummy_columns(train, split = TRUE, remove_selected_columns = TRUE)
+#Winsorization for training data
+winsor.vars <- colnames(new_train[,3:ncol(new_train)])
+quan.value = 0.95
+for(var in winsor.vars){
+  if(class(new_train[, var]) != "character"){
+    temp = new_train[, var]
+    myquan = quantile(temp, probs = quan.value, na.rm = TRUE)
+    temp[temp > myquan] <- myquan
+    new_train[, var] <- temp
+  }
+}
+```
+
+## Model 1 (Lasso)
+
+```{r}
+#Creating Lasso Model
+alpha = seq(0,1,0.01)
+results = data.frame(matrix(data = rep(0,202), ncol = 2, nrow = 101))
+num = 1
+
+for(i in seq_along(alpha)){
+  cv.out = cv.glmnet(as.matrix(new_train[,3:ncol(new_train)]),new_train[,1], alpha = alpha[i])
+  min.lam = cv.out$lambda.min
+  se.lam = cv.out$lambda.1se
+  model1a = glmnet(new_train[,3:ncol(new_train)],new_train[,1], alpha = alpha[i], 
+                   lambda = min.lam, verbose = FALSE)
+  model1b = glmnet(new_train[,3:ncol(new_train)],new_train[,1], alpha = alpha[i], 
+                   lambda = se.lam, verbose = FALSE)
+  test1 = predict(model1a, s = min.lam, as.matrix(new_train[,3:ncol(new_train)]))
+  test2 = predict(model1b, s = se.lam, as.matrix(new_train[,3:ncol(new_train)]))
+  rmse1 = sqrt(mean((test1 - new_train[,1])^2))
+  rmse2 = sqrt(mean((test2 - new_train[,1])^2))
+
+  if(rmse1 > rmse2){
+    best.lam = se.lam
+    model1 = model1b
+    results[num,2] = rmse2
+  } else if(rmse1 < rmse2){
+    best.lam = min.lam
+    model1 = model1a
+    results[num,2] = rmse1
+  } else {
+    best.lam = min.lam
+    model1 = model1a
+    results[num,2] = rmse1
+  }
+  results[num,1] = alpha[i]
+  num = num + 1
+}
+```
+```{r}
+which.min(results$X2)
+```
+
+## Model 2 (Boosting Tree)
+
+```{r}
+set.seed(0243)
+model2 = gbm(new_train[,1] ~., data = new_train[,3:ncol(new_train)], 
+         distribution = "gaussian", n.trees = 5000, interaction.depth = 4, verbose = FALSE)
+```
+
+## Loading and Processing The Testing Data
+
+```{r}
+#Importing the testing data
+test <- read.csv("test.csv")
+#Filling in NA values with 0
+test[is.na(test)] <- 0
+#Dummy Coding of Categorical Variables and Factors
+new_test = dummy_columns(test, split = TRUE, remove_selected_columns = TRUE)
+#Fixing new_test to work in models
+fixed_test = data.frame(matrix(nrow = nrow(new_test), ncol = ncol(new_train)))
+colnames(fixed_test) <- colnames(new_train)
+fixed_test = fixed_test[,-(1:2)]
+#for loop 
+for(i in 1:ncol(fixed_test)){
+  for(j in 1:ncol(new_test)){
+    if(colnames(fixed_test)[i] == colnames(new_test)[j]){
+      fixed_test[,i] = new_test[,j]
+    }
+  }
+}
+#Filling NAs
+fixed_test[is.na(fixed_test)] <- 0
+#Winsorization for testing data
+winsor.vars <- colnames(fixed_test[,3:ncol(fixed_test)])
+quan.value = 0.95
+for(var in winsor.vars){
+  if(class(fixed_test[, var]) != "character"){
+    temp = fixed_test[, var]
+    myquan = quantile(temp, probs = quan.value, na.rm = TRUE)
+    temp[temp > myquan] <- myquan
+    fixed_test[, var] <- temp
+  }
+}
+```
+
+
+## Prediction Using The Two Models
+
+```{r}
+#Lasso
+pred1 = predict(model1, s = best.lam, as.matrix(fixed_test))
+#RMSE
+sqrt(mean((pred1 - log(test.y[,2]))^2))
+
+#Ridge
+pred2 = predict(model2, fixed_test, n.trees = 500)
+#RMSE
+sqrt(mean((pred2 - log(test.y[,2]))^2))
+```
+
+## Exporting The Predictions
+
+```{r}
+pred1 = data.frame(pred1)
+pred2 = data.frame(pred2)
+pred1 = pred1 %>% rename(Sale_Price = "s1") %>% mutate(PID = new_test$PID) %>% 
+                  select(PID, Sale_Price) %>% mutate(Sale_Price = exp(Sale_Price))
+pred2 = pred2 %>% rename(Sale_Price = "pred2") %>% mutate(PID = new_test$PID) %>%
+                  select(PID, Sale_Price) %>% mutate(Sale_Price = exp(Sale_Price))
+```
+
+## Running The Whole Thing
+
+```{r}
+RMSE = data.frame(matrix(rep(0,20), nrow = 10, ncol = 2))
+RMSE = RMSE %>% rename(ElasticNet = "X1") %>% rename(BoostingTree = "X2")
+Time = data.frame(matrix(rep(0,20), nrow = 10, ncol = 2))
+Time = Time %>% rename(ElasticNet = "X1") %>% rename(BoostingTree = "X2")
+
+for(f in 1:10){
+  train <- data[-testIDs[,f], ]
+  test <- data[testIDs[,f], ]
+  test.y <- test[, c(1, 83)]
+  test <- test[, -83]
+  #Exporting the Data
+  write.csv(train,"train.csv",row.names=FALSE)
+  write.csv(test, "test.csv",row.names=FALSE)
+  write.csv(test.y,"test_y.csv",row.names=FALSE)
+  #Importing the training data
+  train <- read.csv("train.csv")
+  #Log-transforming the sale price
+  train$Sale_Price = log(train$Sale_Price)
+  #Renaming Sale_Price to log_Sale_Price and rearranging the data such that log_Sale_Price
+  #is the first column.
+  train <- train %>% rename(log_Sale_Price = "Sale_Price") %>%
+                    select(log_Sale_Price, everything())
+  #Filling in NA values with 0
+  train[is.na(train)] <- 0
+  #Winsorization for training data
+  winsor.vars <- colnames(train[,3:ncol(train)])
+  quan.value = 0.95
+  for(var in winsor.vars){
+    if(class(train[, var]) != "character"){
+      temp = train[, var]
+      myquan = quantile(temp, probs = quan.value, na.rm = TRUE)
+      temp[temp > myquan] <- myquan
+      train[, var] <- temp
+    }
+  }
+  #Dummy Coding of Categorical Variables and Factors
+  new_train = dummy_columns(train, split = TRUE, remove_selected_columns = TRUE)
+  #Creating Lasso Model
+  set.seed(0243)
+  #Timing for Elastic Net Model
+  tm1 = proc.time()
+  cv.out = cv.glmnet(as.matrix(new_train[,3:ncol(new_train)]),new_train[,1], alpha = 0.5)
+  min.lam = cv.out$lambda.min #Minimum Lambda
+  se.lam = cv.out$lambda.1se #1se Lambda
+  model1a = glmnet(new_train[,3:ncol(new_train)],new_train[,1], alpha = 0.5, lambda = min.lam,
+                 verbose = FALSE) #Lasso using min. lambda
+  model1b = glmnet(new_train[,3:ncol(new_train)],new_train[,1], alpha = 0.5, lambda = se.lam,
+                 verbose = FALSE) #Lasso using 1se lambda
+  #Training Error lambda min.
+  test1 = predict(model1a, s = min.lam, as.matrix(new_train[,3:ncol(new_train)]))
+  #Training Error lambda1se
+  test2 = predict(model1b, s = se.lam, as.matrix(new_train[,3:ncol(new_train)]))
+  #RMSE of two models
+  rmse1 = sqrt(mean((test1 - new_train[,1])^2))
+  rmse2 = sqrt(mean((test2 - new_train[,1])^2))
+  #Selecting the optimal model
+  if(rmse1 > rmse2){
+    best.lam = se.lam
+    model1 = model1b
+  } else if(rmse1 < rmse2){
+    best.lam = min.lam
+    model1 = model1a
+  } else {
+    best.lam = min.lam
+    model1 = model1a
+  }
+  #Saving Elastic Net Model Building Time
+  Time[f,1] = as.numeric((proc.time() - tm1)[3])
+  #Creating Boosting Tree Model
+  set.seed(0243)
+  #Timing for Boosting Tree Model
+  tm2 = proc.time()
+  model2 = gbm(new_train[,1] ~., data = new_train[,3:ncol(new_train)], 
+          distribution = "gaussian", n.trees = 2500, interaction.depth = 4, 
+          verbose = FALSE, shrinkage = 0.05)
+  #Saving Boosting Tree Model Building Time
+  Time[f,2] = as.numeric((proc.time() - tm2)[3])
+  #Importing the testing data
+  test <- read.csv("test.csv")
+  #Filling in NA values with 0
+  test[is.na(test)] <- 0
+  #Winsorization for testing data
+  winsor.vars <- colnames(test[,3:ncol(test)])
+  quan.value = 0.95
+  for(var in winsor.vars){
+    if(class(test[, var]) != "character"){
+      temp = test[, var]
+      myquan = quantile(temp, probs = quan.value, na.rm = TRUE)
+      temp[temp > myquan] <- myquan
+      test[, var] <- temp
+    }
+  }
+  #Dummy Coding of Categorical Variables and Factors
+  new_test = dummy_columns(test, split = TRUE, remove_selected_columns = TRUE)
+  #Fixing new_test to work in models
+  fixed_test = data.frame(matrix(nrow = nrow(new_test), ncol = ncol(new_train)))
+  colnames(fixed_test) <- colnames(new_train)
+  fixed_test = fixed_test[,-(1:2)]
+  #for loop 
+  for(i in 1:ncol(fixed_test)){
+    for(j in 1:ncol(new_test)){
+      if(colnames(fixed_test)[i] == colnames(new_test)[j]){
+        fixed_test[,i] = new_test[,j]
+      }
+    }
+  }
+  #Filling NAs
+  fixed_test[is.na(fixed_test)] <- 0
+  #Lasso
+  pred1 = predict(model1, s = best.lam, as.matrix(fixed_test))
+  #RMSE
+  RMSE[f,1] = sqrt(mean((pred1 - log(test.y[,2]))^2))
+
+  #Ridge
+  pred2 = predict(model2, fixed_test, n.trees = 2500)
+  #RMSE
+  RMSE[f,2] = sqrt(mean((pred2 - log(test.y[,2]))^2))
+  
+  pred1 = data.frame(pred1)
+  pred2 = data.frame(pred2)
+  pred1 = pred1 %>% rename(Sale_Price = "s1") %>% mutate(PID = new_test$PID) %>% 
+                    select(PID, Sale_Price) %>% mutate(Sale_Price = exp(Sale_Price))
+  pred2 = pred2 %>% rename(Sale_Price = "pred2") %>% mutate(PID = new_test$PID) %>%
+                    select(PID, Sale_Price) %>% mutate(Sale_Price = exp(Sale_Price))
+  write.table(pred1, file = "mysubmission1.txt", sep = ",", col.names = TRUE, row.names = FALSE)
+  write.table(pred2, file = "mysubmission2.txt", sep = ",", col.names = TRUE, row.names = FALSE)
+}
+```

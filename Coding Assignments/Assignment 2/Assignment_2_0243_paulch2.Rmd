@@ -1,0 +1,401 @@
+---
+title: "(PSL) Coding Assignment 2"
+date: "Fall 2022"
+author: "Paul Holaway (paulch2), Albert Li (xiangl9), & Matt Schroeder (mas5)"
+output:
+  html_document:
+    theme: readable
+    toc: yes
+    toc_float: yes
+  html_notebook:
+    theme: readable
+    toc: yes
+    toc_float: yes
+---
+
+<style>
+div.answer {background-color: #f3f3f3;}
+</style>
+<div class="answer">
+**Note:** Answers to written questions have been colored in a light gray block to distinguish them.
+
+## Statement of Contribution
+
+Each person in this group contributed equally towards the completion of this project. Direct `R` coding was done by Paul and Matt. Function logic was done by each member of the group with Albert taking the lead. All group members assisted in debugging the code along the way. Answers were typed in by Matt while thought out as a group. All group members have also individually reviewed both the coding and written questions for this assignment to ensure we are in agreement with the answers below.
+
+</div>
+
+## Part I: Implement Lasso
+
+### One-variable Lasso
+
+```{r}
+one_var_lasso = function(r, z, lam) {
+  #Calculation for testing.
+  a = t(r)%*%z / sum(z^2)
+  lam = 2*length(z)*lam / sum(z^2)
+
+  #Calculation for coefficient using conditional expression.
+  if(a > lam/2){
+    b = a - lam/2
+  } else if(a < -lam/2){
+    b = a + lam/2
+  } else {
+    b = 0
+  }
+  
+ return(b)
+}
+```
+
+### The CD Algorithm
+
+```{r}
+MyLasso = function(X, y, lam.seq, maxit = 100) {
+    
+    # Input
+    # X: n-by-p design matrix without the intercept 
+    # y: n-by-1 response vector 
+    # lam.seq: sequence of lambda values (arranged from large to small)
+    # maxit: number of updates for each lambda 
+    
+    # Output
+    # B: a (p+1)-by-length(lam.seq) coefficient matrix 
+    #    with the first row being the intercept sequence
+
+    n = length(y)
+    p = dim(X)[2]
+    nlam = length(lam.seq)
+    B = matrix(0, ncol = nlam, nrow = (p+1))
+    rownames(B) = c("Intercept", colnames(X)) 
+
+    ##############################
+    #Initialize mean and variance vectors
+    mu = rep(0,p)
+    v = rep(0,p)
+    #Initialize new design matrix
+    new.X = X
+    for(i in 1:p){
+      mu[i] = mean(X[,i])
+      v[i] = sd(X[,i])
+      new.X[,i] = (X[,i] - mu[i])/v[i]
+    }
+    ##############################
+
+    # Initialize coefficients vector b and residual vector r
+    b = rep(0, p)
+    r = y
+    
+    # Triple nested loop
+    for (m in 1:nlam) {
+      for (step in 1:maxit) {
+        for (j in 1:p) {
+          r = r + (new.X[, j] * b[j])
+          b[j] = one_var_lasso(r, new.X[, j], lam.seq[m])
+          r = r - new.X[, j] * b[j]
+        }
+      }
+      B[-1, m] = b
+    }
+   
+    ##############################
+    #Scaling the coefficients back
+    for(i in 2:nrow(B)){
+      B[i,] = B[i,]/v[i-1]
+    }
+    #Updating intercepts
+    for(i in 1:ncol(B)){
+      B[1,i] = mean(y) - sum(B[-1,i]*mu)
+    }
+    ##############################
+    
+    return(B)
+}
+```
+
+### Testing The Function
+
+```{r}
+myData <- read.csv("~/Classes/STAT542 (UIUC)/Data Sets/Coding2_Data.csv", stringsAsFactors=TRUE)
+X = as.matrix(myData[, -14])
+y = myData$Y
+lam.seq = exp(seq(-1, -8, length.out = 80))
+myout = MyLasso(X, y, lam.seq)
+```
+
+* Check the accuracy of your function against the output from `glmnet`. The maximum difference between the two coefficient matrices should be <span style="color: red;">less than 0.005</span>.
+
+```{r}
+library(glmnet)
+lasso.fit = glmnet(X, y, alpha = 1, lambda = lam.seq)
+max(abs(coef(lasso.fit) - myout))
+```
+
+* Produce a path plot for the 13 non-intercept coefficients along the lambda values in log scale.
+
+```{r}
+x.index = log(lam.seq)
+beta = myout[-1, ]  # beta is a 13-by-80 matrix
+matplot(x.index, t(beta),
+        xlim = c(min(x.index), max(x.index)),
+        lty = 1,
+        xlab = "Log Lambda",
+        ylab = "Coefficients",
+        type="l", 
+        lwd = 1)
+# You can add variable names to each path
+var.names = colnames(X)
+nvar = length(var.names)
+xpos = rep(min(x.index), nvar)
+ypos = beta[, ncol(beta)]
+text(xpos, ypos, var.names, cex=0.5, pos=2)
+```
+
+Your plot should look almost the same as the plot from `glmnet`
+```{r}
+plot(lasso.fit, xvar = "lambda")
+```
+
+---
+
+## Part II: Simulation Study
+
+### Case I
+
+#### Simulation
+
+```{r}
+#Libraries, seed, and importing data.
+library(glmnet) 
+library(pls)
+set.seed(0243)
+myData = read.csv("~/Classes/STAT542 (UIUC)/Data Sets/Coding2_Data2.csv", stringsAsFactors=TRUE)
+#Creating Training and Testing Data
+X = data.matrix(myData[,-1])  
+Y = myData[,1]
+T = 50
+n = length(Y)
+ntest = round(n * 0.25)  # test set size
+ntrain = n - ntest  # training set size
+all.test.id = matrix(0, ntest, T)
+#Creating the 50 different testing data sets via index.
+for(t in 1:T){
+    all.test.id[, t] = sample(1:n, ntest)
+  }
+results = matrix(data = rep(0,350), nrow = 50, ncol = 7, byrow = TRUE)
+
+for(i in 1:50){
+  #Full Model
+  test.id = all.test.id[, i] 
+  full.model = lm(Y ~ ., data = myData[-test.id, ])
+  Ytest.pred = predict(full.model, newdata = myData[test.id, ])
+  results[i,1] = mean((myData$Y[test.id] - Ytest.pred)^2) #MSPE of Full Model
+  #Ridge Regression
+  mylasso.lambda.seq = exp(seq(-10, 1, length.out = 100))
+  cv.out = cv.glmnet(X[-test.id, ], Y[-test.id], alpha = 0, 
+                   lambda = mylasso.lambda.seq)
+  #Lambda Minimum
+  best.lam = cv.out$lambda.min
+  Ytest.pred = predict(cv.out, s = best.lam, newx = X[test.id, ])
+  results[i,2] = mean((Y[test.id] - Ytest.pred)^2) #MSPE of Ridge Lambda Minimum
+  #Lambda 1SE
+  best.lam = cv.out$lambda.1se
+  Ytest.pred = predict(cv.out, s = best.lam, newx = X[test.id, ])
+  results[i,3] = mean((Y[test.id] - Ytest.pred)^2) #MSPE of Ridge Lambda 1SE
+  #LASSO
+  cv.out = cv.glmnet(X[-test.id, ], Y[-test.id], alpha = 1)
+  #Lambda Minimum
+  best.lam = cv.out$lambda.min
+  Ytest.pred = predict(cv.out, s = best.lam, newx = X[test.id, ])
+  results[i,4] = mean((Y[test.id] - Ytest.pred)^2) #MSPE of LASSO Lambda Minimum
+  #Lambda 1SE
+  best.lam = cv.out$lambda.1se
+  Ytest.pred = predict(cv.out, s = best.lam, newx = X[test.id, ])
+  results[i,5] = mean((Y[test.id] - Ytest.pred)^2) #MSPE of LASSO Lambda 1SE
+  # Lasso Refit
+  mylasso.coef = predict(cv.out, s = best.lam, type = "coefficients")
+  var.sel = row.names(mylasso.coef)[which(mylasso.coef != 0)[-1]]
+  mylasso.refit = lm(Y ~ ., myData[-test.id, c("Y", var.sel)])
+  Ytest.pred = predict(mylasso.refit, newdata = myData[test.id, ])
+  results[i,6] = mean((Ytest.pred - Y[test.id])^2) #MSPE of LASSO Refit
+  #PCR
+  mypcr = pcr(Y ~ ., data= myData[-test.id, ], validation="CV", scale = TRUE)
+  CVerr = RMSEP(mypcr)$val[1, , ]
+  adjCVerr = RMSEP(mypcr)$val[2, , ]
+  best.ncomp = which.min(CVerr) - 1 
+
+  if (best.ncomp==0) {
+      Ytest.pred = mean(myData$Y[-test.id])
+    } else {
+      Ytest.pred = predict(mypcr, myData[test.id,], ncomp=best.ncomp)
+    }
+  results[i,7] = mean((Ytest.pred - myData$Y[test.id])^2) #MSPE of PCR
+  
+}
+```
+
+#### Boxplot
+
+```{r}
+
+#Results Box Plot
+boxplot(results, beside = TRUE, main = 'MSPE vs. Method for Case I', xlab = 'Modeling Method', ylab = 'Mean Squared Prediction Error (MSPE)', names = c('Full', 'Ridge.min', 'R.1se', 'Lasso.min', 'L.1se', 'L.Refit', 'PCR'))
+
+# Attempting to add the means to the boxplot
+means = colMeans(results)
+points(1:ncol(results), means, col = 'red', pch = 19)
+```
+<div class="answer">
+
+#### Questions
+
+**Which method or methods perform the best?**
+
+For case I, you could argue that either Ridge.min or Lasso.min performs the best. This is because they both have a lower median (represented by the thick horizontal black line) and mean (represented by the red dot) that the five other methods. Interestingly, their third quartile is around where the other medians are.
+
+**Which method or methods perform the worst?**
+
+Frankly in this case there is not a *huge* difference between the best and the worst performing methods. You could make an argument for the five other methods being the worst, that is Full, Ridge.1se, Lasso.1se, L.Refit, and PCR. It appears that all of their means and medians are within .003, or three one thousands, of a points of MSPE, so again there is hardly a difference.
+
+**For Ridge regression, which,** `lambda.min` **or** `lambda.1se`**, produces better MSPE?**
+
+```{r}
+means[2]
+means[3]
+means[2]-means[3]
+```
+
+`Lambda.min` performs slightly better than `lambda.1se`. As we can see from the code segment above, it has a very marginally better mean MSPE (.00367) and a difference of median MSPE of roughly the same amount. The first and third quartile for ridge.min is lower than both the first and third quartile of ridge.1se.
+
+**For Lasso regression, which,** `lambda.min` **or** `lambda.1se`**, produces better MSPE?**
+
+```{r}
+means[4]
+means[5]
+means[4]-means[5]
+```
+
+`Lambda.min` performs marginally better than `lasso.1se`; it has a slightly better mean MSPE (.00387) and a difference of median MSPE of a similar amount. The first and third quartile for `lambda.min` is lower than both the first and third quartile of `lambda.1se`.
+
+**Is it worth doing refit? That is, does L.Refit perform better than Lasso.1se?**
+
+No it is not. The two methods perform almost identically. While lasso.refit does have outliers while lasso.1se does not, the box plots approximately the same in shape, and their whiskers are approximately the same length.
+
+**Is it worth doing variable selection or shrinkage in this case? That is, do you think the performance of Full is comparable or not to the best among the other six?**
+
+Honestly, while we categorized full as one of the five worst performing methods out of the seven in total, we would not say that the variable selection is entirely necessary in this case as the difference in MSPE is about .0025 compared to the best performing model. Of course it depends on what you're predicting, but we'd imagine for many instances it wouldn't be necessary.
+</div>
+
+### Case II
+
+#### Simulations
+
+```{r}
+#Libraries, seed, and importing data.
+library(glmnet) 
+library(pls)
+set.seed(0243)
+myData = read.csv("~/Classes/STAT542 (UIUC)/Data Sets/Coding2_Data3.csv", stringsAsFactors=TRUE)
+#Creating Training and Testing Data
+X = data.matrix(myData[,-1])  
+Y = myData[,1]
+T = 50
+n = length(Y)
+ntest = round(n * 0.25)  # test set size
+ntrain = n - ntest  # training set size
+all.test.id = matrix(0, ntest, T)
+#Creating the 50 different testing data sets via index.
+for(t in 1:T){
+    all.test.id[, t] = sample(1:n, ntest)
+  }
+results2 = matrix(data = rep(0,300), nrow = 50, ncol = 6, byrow = TRUE)
+
+for(i in 1:50){
+  #Ridge Regression
+  mylasso.lambda.seq = exp(seq(-10, 1, length.out = 100))
+  cv.out = cv.glmnet(X[-test.id, ], Y[-test.id], alpha = 0, 
+                   lambda = mylasso.lambda.seq)
+  #Lambda Minimum
+  best.lam = cv.out$lambda.min
+  Ytest.pred = predict(cv.out, s = best.lam, newx = X[test.id, ])
+  results2[i,1] = mean((Y[test.id] - Ytest.pred)^2) #MSPE of Ridge Lambda Minimum
+  #Lambda 1SE
+  best.lam = cv.out$lambda.1se
+  Ytest.pred = predict(cv.out, s = best.lam, newx = X[test.id, ])
+  results2[i,2] = mean((Y[test.id] - Ytest.pred)^2) #MSPE of Ridge Lambda 1SE
+  #LASSO
+  cv.out = cv.glmnet(X[-test.id, ], Y[-test.id], alpha = 1)
+  #Lambda Minimum
+  best.lam = cv.out$lambda.min
+  Ytest.pred = predict(cv.out, s = best.lam, newx = X[test.id, ])
+  results2[i,3] = mean((Y[test.id] - Ytest.pred)^2) #MSPE of LASSO Lambda Minimum
+  #Lambda 1SE
+  best.lam = cv.out$lambda.1se
+  Ytest.pred = predict(cv.out, s = best.lam, newx = X[test.id, ])
+  results2[i,4] = mean((Y[test.id] - Ytest.pred)^2) #MSPE of LASSO Lambda 1SE
+  # Lasso Refit
+  mylasso.coef = predict(cv.out, s = best.lam, type = "coefficients")
+  var.sel = row.names(mylasso.coef)[which(mylasso.coef != 0)[-1]]
+  mylasso.refit = lm(Y ~ ., myData[-test.id, c("Y", var.sel)])
+  Ytest.pred = predict(mylasso.refit, newdata = myData[test.id, ])
+  results2[i,5] = mean((Ytest.pred - Y[test.id])^2) #MSPE of LASSO Refit
+  #PCR
+  mypcr = pcr(Y ~ ., data= myData[-test.id, ], validation="CV", scale = TRUE)
+  CVerr = RMSEP(mypcr)$val[1, , ]
+  adjCVerr = RMSEP(mypcr)$val[2, , ]
+  best.ncomp = which.min(CVerr) - 1 
+
+  if (best.ncomp==0) {
+      Ytest.pred = mean(myData$Y[-test.id])
+    } else {
+      Ytest.pred = predict(mypcr, myData[test.id,], ncomp=best.ncomp)
+    }
+  results2[i,6] = mean((Ytest.pred - myData$Y[test.id])^2) #MSPE of PCR
+  
+}
+```
+
+#### Boxplot
+
+```{r}
+#Results Box Plot
+boxplot(results2, beside = TRUE, main = 'MSPE vs. Method for Case II', xlab = 'Modeling Method', ylab = 'Mean Squared Prediction Error (MSPE)', names = c('Ridge.min', 'R.1se', 'Lasso.min', 'L.1se', 'L.Refit', 'PCR'))
+
+# Attempting to add the means to the boxplot
+means2 = colMeans(results2)
+points(1:ncol(results2), means2, col = 'red', pch = 19)
+```
+<div class="answer">
+
+#### Questions
+
+**Which method or methods perform the best in this case?**
+
+```{r}
+means2[5]
+means2[3]
+means2[1]
+means2[4]
+```
+
+In this case, compared to case #1, there is a much larger difference between the MSPE of each of the models. The MSPE of lasso.refit is the best by about .002. After that Lasso.min beats out the next best performing model by about .0067. It should be noted that lasso.refit does have some outliers from its box plot, which could be skewing the MSPE for the plot. However, it is most likely being skewed up as all outliers are on the upper end of the plot.
+
+**Which method or methods perform the worst in this case?**
+
+```{r}
+means2[6]
+means2[2]
+means2[6] - means2[2]
+means2[6] - means2[5]
+```
+
+The worst performing method in this case is PCR, which performs worse than the second worst performing model by more than .014 MSPE. It is .03 MSPE worse than the best performing model. 
+
+**Do you notice any method/methods that performs/perform better in one case but not in the other? If so, explain why.**
+
+The performance of all models in the first case was better than each of the models in the second case in terms of absolute MSPE. However, in the second case there is much less variation in the MSPE meaning that there could be a more precise prediction for a specific method. We attribute this to the noise being included to the actual predictors in the second case. A systematic bias could have been introduced into the model via the white noise data. While our test performance overall is worse due to a higher MSPE, there could be more consistent predictions given the low variation in the MSPE.
+
+**Since** `Coding2_Data3.csv` **contains all features in** `Coding2_Data2.csv`**, one may expect that the best MSPE in Case II is smaller than, or at least not bigger than, the the best MSPE in Case I. Do your simulation results support this expectation? If not, explain why.**
+
+Actually, the MSPE of case II is larger than case I in every single method without any exceptions. We believe this to be because some of the 500 noise variables are included in the model instead the actual predictors which results in worse predictive ability and thus worse MSPE. However, we notice that the variation of the MSPE for each method is much lower in Case II than in Case I. While we may not have a better absolute value of MSPE, the overall accuracy is more consistent which is also an objective in prediction.
+</div>

@@ -1,0 +1,421 @@
+---
+title: "Project 4 Report"
+author: "Paul Holaway (paulch2), Albert Li (xiangl9), & Matthew Schroeder (mas5)"
+date: "December 10, 2022"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Movie Recommender App
+
+[App Link](https://pholaway72.shinyapps.io/projectapp/)
+
+## Statement of Contribution
+
+The coding and implementation for method I was created and coded by Paul. The coding and implementation for method II was coded by Albert. The implementation of the app was done by Paul and Albert with input from Matt. The document was coded and written by both Paul and Albert.
+
+## Libraries
+
+```{r, warning=FALSE, include=FALSE}
+suppressMessages(library(tidyverse))
+suppressMessages(library(ggplot2))
+suppressMessages(library(recommenderlab))
+suppressMessages(library(DT))
+suppressMessages(library(data.table))
+suppressMessages(library(reshape2))
+```
+```{r, eval=FALSE}
+library(data.table)
+library(DT)
+library(ggplot2)
+library(recommenderlab)
+library(reshape2)
+library(tidyverse)
+```
+
+## Reading in the Data
+
+### Ratings Data
+
+```{r}
+# use colClasses = 'NULL' to skip columns
+ratings = read.csv("~/Classes/STAT542 (UIUC)/Projects/Project 4/data/ratings.dat", 
+                   sep = ':',
+                   colClasses = c('integer', 'NULL'), 
+                   header = FALSE)
+colnames(ratings) = c('UserID', 'MovieID', 'Rating', 'Timestamp')
+```
+
+
+### Movies Data
+
+```{r, results='hide'}
+movies = readLines("~/Classes/STAT542 (UIUC)/Projects/Project 4/data/movies.dat")
+movies = strsplit(movies, split = "::", fixed = TRUE, useBytes = TRUE)
+movies = matrix(unlist(movies), ncol = 3, byrow = TRUE)
+movies = data.frame(movies, stringsAsFactors = FALSE)
+colnames(movies) = c('MovieID', 'Title', 'Genres')
+movies$MovieID = as.integer(movies$MovieID)
+
+# convert accented characters
+movies$Title[73]
+movies$Title = iconv(movies$Title, "latin1", "UTF-8")
+movies$Title[73]
+
+# extract year
+movies$Year = as.numeric(unlist(
+  lapply(movies$Title, function(x) substr(x, nchar(x)-4, nchar(x)-1))))
+```
+
+### User Data
+
+```{r}
+users = read.csv("~/Classes/STAT542 (UIUC)/Projects/Project 4/data/users.dat",
+                 sep = ':', header = FALSE)
+users = users[, -c(2,4,6,8)] # skip columns
+colnames(users) = c('UserID', 'Gender', 'Age', 'Occupation', 'Zip-code')
+```
+
+## EDA
+
+### Unique Users?
+
+```{r}
+#Number of Users
+dim(users)
+length(unique(ratings$UserID))
+```
+There are a total of `r length(unique(ratings$UserID))` unique users in the data.
+
+### Unique Movies?
+
+```{r}
+#Number of Movies
+dim(movies)
+#Number of movies with ratings
+length(unique(ratings$MovieID))
+#Movies not in ratings
+dim(movies)[1] - length(unique(ratings$MovieID))
+```
+There are a total of `r length(unique(ratings$MovieID))` unique movies in the data, but only `r length(unique(ratings$MovieID))` of them have any reviews.
+
+## Finding Top Movies by Genre
+
+### Reshaping Data for App
+
+We have added in two columns to the original data. The first is `No.Reviews` which is the total number of reviews a movie has gotten, and `Avg.Rating` which is the average rating of the movie out of 5.
+
+```{r}
+#Adding number of reviews column
+AppData = merge(movies, summarise(group_by(ratings, MovieID), No.Reviews = n()), 
+                    by = "MovieID", all = TRUE)
+#Adding the average rating for each movie
+AppData = merge(AppData, summarise(group_by(ratings, MovieID), Avg.Rating = mean(Rating)),
+                by = "MovieID", all = TRUE)
+#Filling all NAs with 0
+AppData <- AppData %>% replace(is.na(.),0)
+```
+```{r}
+head(AppData, 10)
+```
+
+### Finding Top Movies (Method I)
+
+For our first method, we decided to recommend the top ten highest rated movies within each genre. We set a simple criteria that the movie must have $>50$ reviews in order to be considered for our recommendation. Movies with a few ratings could have their average rating be biased due to a few 5/5 or 1/5 ratings skewing the average. After we filter out all movies with $\le50$ reviews, we then sort them by average ratings from highest to lowest, and the select the top ten.
+
+```{r}
+#Creating Genre List
+genre_list = c("Action", "Adventure", "Animation", 
+               "Children's", "Comedy", "Crime",
+               "Documentary", "Drama", "Fantasy",
+               "Film-Noir", "Horror", "Musical", 
+               "Mystery", "Romance", "Sci-Fi", 
+               "Thriller", "War", "Western")
+```
+```{r}
+#Custom function for creating top movies with method I (This function is NOT robust.)
+genre_rank1 <- function(data, genre){
+  #Data frame of movies
+  temp = data %>% filter(str_detect(Genres, genre)) %>% filter(No.Reviews > 50) %>%
+              arrange(desc(Avg.Rating)) %>% head(10) %>% mutate(Image = paste0('<img src="',
+                "https://liangfgithub.github.io/MovieImages/", MovieID,
+                '.jpg?raw=true"></img>'))
+  #Creating list using only movie and average rating columns
+  x = list(temp$Image, temp$Title, temp$Avg.Rating)
+  names(x) <- c("Image","Title","Avg.Rating")
+  return(x)
+}
+```
+```{r}
+#Initializing top movies data frame
+Method1Data = data.frame(matrix(rep(0, 3*10*length(genre_list)), nrow = 10))
+
+for(i in 1:length(genre_list)){
+  #Adding Movie Image
+  Method1Data[,(3*i)-2] = genre_rank1(AppData, genre_list[i])$Image
+  #Adding Column name
+  colnames(Method1Data)[(3*i)-2] <- paste0(genre_list[i],".Image")
+  #Getting top 10 movie titles with method I
+  Method1Data[,(3*i)-1] = genre_rank1(AppData, genre_list[i])$Title
+  #Adding in column name
+  colnames(Method1Data)[(3*i)-1] <- paste0(genre_list[i],".Title")
+  #Getting top 10 movie average ratings with method I
+  Method1Data[,3*i] = round(genre_rank1(AppData, genre_list[i])$Avg.Rating, 2)
+  #Adding in column name
+  colnames(Method1Data)[3*i] <- paste0(genre_list[i],".Rating")
+}
+```
+
+### Finding Top Movies (Method II)
+
+For our second method, we made a small change to the first one. We are now adding an additional criteria to our recommendation selection. We would first rank the movies by the number of reviews it had received. Our thought process was that the more reviews a movie had, the more watched it was, which means it would be more popular among viewers. We now select the movies with the top twenty-five most reviews, then pick the top ten highest average reviews from that subset.
+
+```{r}
+#Custom function for creating top movies with method II (This function is NOT robust.)
+genre_rank2 <- function(data, genre){
+  #Data frame of movies
+  temp = data %>% filter(str_detect(Genres, genre)) %>% arrange(desc(No.Reviews)) %>%
+              head(25) %>% arrange(desc(Avg.Rating)) %>% head(10) %>% 
+              mutate(Image = paste0('<img src="',
+                "https://liangfgithub.github.io/MovieImages/", MovieID,
+                '.jpg?raw=true"></img>'))
+  #Creating list using only movie and average rating columns
+  x = list(temp$Image, temp$Title, temp$Avg.Rating)
+  names(x) <- c("Image","Title","Avg.Rating")
+  return(x)
+}
+```
+```{r}
+#Initializing top movies data frame
+Method2Data = data.frame(matrix(rep(0, 3*10*length(genre_list)), nrow = 10))
+
+for(i in 1:length(genre_list)){
+  #Adding Movie Image
+  Method2Data[,(3*i)-2] = genre_rank2(AppData, genre_list[i])$Image
+  #Adding Column name
+  colnames(Method2Data)[(3*i)-2] <- paste0(genre_list[i],".Image")
+  #Getting top 10 movie titles with method I
+  Method2Data[,(3*i)-1] = genre_rank2(AppData, genre_list[i])$Title
+  #Adding in column name
+  colnames(Method2Data)[(3*i)-1] <- paste0(genre_list[i],".Title")
+  #Getting top 10 movie average ratings with method I
+  Method2Data[,3*i] = round(genre_rank2(AppData, genre_list[i])$Avg.Rating, 2)
+  #Adding in column name
+  colnames(Method2Data)[3*i] <- paste0(genre_list[i],".Rating")
+}
+```
+
+After a brief discussion, we decided to go with method II for our app. We decided this because we did not just want to recommend a movie with a high rating, but that was also popular. As we stated earlier, more popular movies would have more viewers, which means it would have more reviews. Therefore we decided that method II would best capture that sentiment.
+
+## Example Printouts
+
+### Method I
+
+```{r}
+Method1Data %>% select(War.Image, War.Title, War.Rating) %>% head(5) %>%
+        datatable(class = "nowrap hover row-border", escape = FALSE, 
+        options = list(dom = 't', scrollX = TRUE, autoWidth = FALSE))
+```
+
+### Method II
+
+```{r}
+Method2Data %>% select(War.Image, War.Title, War.Rating) %>% head(5) %>%
+        datatable(class = "nowrap hover row-border", escape = FALSE, 
+        options = list(dom = 't', scrollX = TRUE, autoWidth = FALSE))
+```
+
+### Exporting Data for App
+
+```{r}
+#Custom function for creating top movies with method II for our app (This function is NOT robust.)
+genre_rank2App <- function(data, genre){
+  #Data frame of movies
+  temp = data %>% filter(str_detect(Genres, genre)) %>% arrange(desc(No.Reviews)) %>%
+              head(25) %>% arrange(desc(Avg.Rating)) %>% head(10) %>% 
+              mutate(Image = paste0(
+                "https://liangfgithub.github.io/MovieImages/", MovieID,
+                '.jpg?raw=true'))
+  #Creating list using only movie and average rating columns
+  x = list(temp$Image, temp$Title, temp$Avg.Rating)
+  names(x) <- c("Image","Title","Avg.Rating")
+  return(x)
+}
+```
+```{r}
+#Initializing top movies data frame
+ExportData = data.frame(matrix(rep(0, 3*10*length(genre_list)), nrow = 10))
+
+for(i in 1:length(genre_list)){
+  #Adding Movie Image
+  ExportData[,(3*i)-2] = genre_rank2App(AppData, genre_list[i])$Image
+  #Adding Column name
+  colnames(ExportData)[(3*i)-2] <- paste0(genre_list[i],".Image")
+  #Getting top 10 movie titles with method I
+  ExportData[,(3*i)-1] = genre_rank2App(AppData, genre_list[i])$Title
+  #Adding in column name
+  colnames(ExportData)[(3*i)-1] <- paste0(genre_list[i],".Title")
+  #Getting top 10 movie average ratings with method I
+  ExportData[,3*i] = round(genre_rank2App(AppData, genre_list[i])$Avg.Rating, 2)
+  #Adding in column name
+  colnames(ExportData)[3*i] <- paste0(genre_list[i],".Rating")
+}
+```
+```{r}
+#Exporting the genre recommendation table
+#write.table(ExportData, file = "GenreRecommend.txt", row.names = FALSE, sep = "\t")
+```
+
+## Finding Top Movies With UBCF and IBCF
+
+### Creating Training and Testing Data
+
+Below we create both training and testing data for the UBCF and IBCF models. We will use the first 500 user ratings as our training data and the $\text{501}^{\text{st}}$ user rating as our test data.
+```{r}
+i = paste0('u', ratings$UserID)
+j = paste0('m', ratings$MovieID)
+x = ratings$Rating
+tmp = data.frame(i, j, x, stringsAsFactors = T)
+Rmat = sparseMatrix(as.integer(tmp$i), as.integer(tmp$j), x = tmp$x)
+rownames(Rmat) = levels(tmp$i)
+colnames(Rmat) = levels(tmp$j)
+Rmat = new('realRatingMatrix', data = Rmat)
+
+train = Rmat[1:500, ]
+test = Rmat[501, ]
+```
+
+### Prediction Using UBCF
+
+For the UBCF procedure, we did the following steps when implementing the algorithm...
+
+1. We first centered each row for the training and testing data by removing the means of each.
+2. We then computed the similarities between the testing and training data using the cosine similarity measure as it works great for numerical ratings.
+
+$$
+\frac{u^tv}{||u||\cdot||v||}\text{, where }u\text{ and }v\text{ are two vectors}
+$$
+
+3. Due to correlation being between -1 and 1 ($r\in[-1,1]$), we had to apply a transformation to make all similarity measures non-negative when computing the weighted averages.
+4. We then found the top 20 ranked by similarity so to be consistent with `recommenderlab` results and all other ratings as `NA`.
+5. We then computed the weighted average of the 20 users to get our prediction results.
+
+$$
+\text{mypred[}j\text{]}=\frac{\sum_{i\in S}s_ir_{ij}}{\sum_{i\in S}s_i}
+$$
+6. We then added back the row means in and assigned all $\infty$ values to `NA` to be able to compare our results with `recommenderlab`.
+7. We finally assign all existing reviews in the testing data to `NA`.
+
+```{r}
+#Creating mypred with UBCF method
+data = as(train, "matrix") 
+user.means = rowMeans(data, na.rm = TRUE) 
+data = data - user.means
+newdata = as(Rmat[501, ], "matrix")
+newuser.mean = mean(newdata, na.rm = TRUE) 
+newdata = newdata - newuser.mean
+#Cosine Method
+sim = proxy::simil(data, newdata, method = "cosine")
+#Making everything non-negative
+sim = (1 + sim)/2
+#Getting the top 20 ranked by the similarity
+ids<-order(sim,decreasing=TRUE)[1:20]
+sim[-ids]<-NA #Assigning all ratings except the top 20 mentioned above to NA
+num = colSums(data * as.vector(sim),na.rm = TRUE)
+den = colSums((!is.na(data)) * as.vector(sim),na.rm = TRUE)
+mypred=num/den
+mypred=mypred+newuser.mean #Add back the mean
+mypred[is.nan(mypred)]<-NA #Assigning all inf values to NAs
+mypred[!is.na(newdata)]<-NA
+```
+
+### Testing Our Code Against `recommenderlab`
+
+```{r}
+recommender.UBCF <- Recommender(train, method = "UBCF",
+                      parameter = list(normalize = 'center', method = 'Cosine', nn = 20))
+p.UBCF <- predict(recommender.UBCF, test, type="ratings")
+p.UBCF <- as.numeric(as(p.UBCF, "matrix"))
+#Evaluation
+sum(is.na(p.UBCF) != is.na(mypred)) ### should be zero
+max(abs(p.UBCF - mypred), na.rm = TRUE)  ### should be less than 1e-06
+```
+```{r}
+#Exporting the UBCF results
+#saveRDS(recommender.UBCF, file = "UBCFresults.rds")
+#write.table(colnames(Rmat), file = "IDs.txt", col.names = FALSE, row.names = FALSE, 
+            #quote = FALSE, sep = "\n")
+```
+As we can see, our code came back with results consistent with `Recommender()` and our errors were practically 0.
+
+### Prediction Using IBCF
+
+For the IBCF procedure, we did the following steps when implementing the algorithm...
+
+1. We first calculate the similarity matrix using the cosine similarity measure again. The process is similar to the first one, but now we are looking for similarity between different movies.
+
+$$
+\frac{u^tv}{||u||\cdot||v||}\text{, where }u\text{ and }v\text{ are two vectors}
+$$
+
+2. Due to correlation being between -1 and 1 ($r\in[-1,1]$), we had to apply a transformation (again) to make all similarity measures non-negative when computing the weighted averages.
+3. We then transformed the results into a matrix for more efficient running in `R`.
+4. We then ordered the similarity matrix such that all `NA`s were at the top and all numerical values are in increasing order and take the top 30 similar observations within each column.
+5. After this, we change all values except the top 30 similar observations within each column to `NA`.
+6. We then reassign the new data back into the matrix so the mean is not removed.
+7. We then computed the weighted average of the 30 users to get our prediction results.
+
+$$
+\hat{r}_{ai}=\frac{1}{\sum_{j\in S(i)\cap\{l;r_{al}\neq?\}}s_{ij}}\sum_{{j\in S(i)\cap\{l;r_{al}\neq?\}}}s_{ij}r_{aj}
+$$
+
+8. We then assigned all $\infty$ values to `NA` to be able to compare our results with `recommenderlab`.
+9. We finally assign all existing reviews in the testing data to `NA`.
+
+```{r}
+sim2 = proxy::simil(data, by_rows=FALSE, method = "cosine")
+sim2<-0.5*(sim2+1) #change the range into [0,1]
+sim2<-as.matrix(sim2)  #Get the similarity matrix with cosine normalize method
+
+for(i in 1:dim(sim2)[2]){
+  temp_id<-tail(order(sim2[,i],decreasing=FALSE,na.last=FALSE),30)
+  sim2[-temp_id,i]<-NA
+}
+
+newdata = as(Rmat[501, ], "matrix")#Re-assign the newdata with the matrix
+num = colSums((sim2)*as.vector(newdata),na.rm = TRUE)
+den = colSums((sim2)*as.vector(!is.na(newdata))  ,na.rm = TRUE)
+mypred=num/den
+mypred[is.nan(mypred)]<-NA  #Assigning all inf values to NAs
+mypred[!is.na(newdata)]<-NA #Assigning all existing reviews to NAs
+```
+
+
+### Testing Our Code Against `recommenderlab`
+
+```{r}
+recommender.IBCF <- Recommender(train, method = "IBCF",
+                                parameter = list(normalize = 'center', 
+                                                 method = 'Cosine', 
+                                                 k = 30))
+
+p.IBCF <- predict(recommender.IBCF, test, type="ratings")
+p.IBCF <- as.numeric(as(p.IBCF, "matrix"))
+## first output: should be less than 10
+sum(is.na(p.IBCF) != is.na(mypred))  
+## second output: should be less than 10%
+mydiff = abs(p.IBCF - mypred)
+sum(mydiff[!is.na(mydiff)] > 1e-6) / sum(!is.na(mydiff)) 
+```
+
+As we can see, our code came back with results consistent with `Recommender()` and the difference is $\approx$ `r round(sum(mydiff[!is.na(mydiff)] > 1e-6) / sum(!is.na(mydiff)), 4)` $<$ 0.10.
+\
+\
+After a brief discussion, we decided to go with UBCF for our app. We decided this because UBCF uses less memory than IBCF and therefore would result in the app running faster. It should be noted that this is a special case for our situation given that we are only receiving *one* test user at a time.

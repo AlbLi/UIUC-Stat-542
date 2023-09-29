@@ -1,0 +1,49 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+#install.packages("ISLR")
+library(ISLR)
+#install.packages("pROC")
+library(pROC)
+#install.packages("glmnet")
+library(glmnet)
+Caravan<-Caravan
+```
+
+```{r}
+#0.25 as cut-off
+id<-c(1:1000)
+test_car<-Caravan[id,]
+train_car<-Caravan[-id,]
+```
+
+```{r}
+all_logit<-glm(Purchase ~ .,family="binomial",data = Caravan)
+mypred_all<-predict(all_logit,test_car,type="response")
+
+
+
+no_id<-which(mypred_all<=0.25)
+mypred_all[no_id]<-"No"
+mypred_all[-no_id]<-"Yes"
+
+sum(test_car$Purchase=="No")-sum(mypred_all=="No")
+sum(test_car$Purchase=="Yes")-sum(mypred_all=="Yes")
+
+summary(test_car$Purchase)
+```
+```{r}
+forward<-step(all_logit, scope=list(upper=~., lower=~1))
+
+backward<-step(all_logit, scope=list(upper=~., lower=~1), trace = 0, k=log(dim(Caravan)[1]))
+
+
+summary(forward)
+summary(backward)
+```
+
+

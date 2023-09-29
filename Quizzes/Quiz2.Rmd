@@ -1,0 +1,20 @@
+---
+title: 'Quiz 2'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1-3
+
+```{r}
+#Importing Data
+Auto <- read.csv("~/Desktop/Courses/STAT542 (UIUC)/Data Sets/Q2Auto.data", sep="", stringsAsFactors=TRUE)
+#Model #1-2
+summary(lm(mpg ~ displacement, data = Auto))
+#MLR Model #3
+summary(lm(mpg ~ cylinders + displacement + horsepower + weight + acceleration + year + origin,
+           data = Auto))
+```

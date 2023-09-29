@@ -1,0 +1,33 @@
+---
+title: "Quiz 7"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)
+```
+
+## 5-11
+
+```{r}
+#Loading the Data
+load("~/Classes/STAT542 (UIUC)/Data Sets/zip.test.RData")
+load("~/Classes/STAT542 (UIUC)/Data Sets/zip.train.RData")
+#LDA Model
+lda7 = lda(zip.train[,2:257], zip.train[,1])
+#Prediction
+test.pred = predict(lda7, newdata = zip.test[,2:257])
+#5
+table(zip.test[,1])
+#6
+table(zip.test[,1], test.pred$class)
+#7
+table(test.pred$class)
+#8
+as.numeric(table(test.pred$class)[5]) - as.numeric(table(zip.test[,1], test.pred$class)[5,5])
+#9
+zip.test[4,1]
+#10-11
+test.pred$posterior[4,]
+```

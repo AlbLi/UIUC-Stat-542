@@ -1,0 +1,169 @@
+---
+title: "Vocabulary Creation"
+author: "Paul Holaway (paulch2), Albert Li (xiangl9), & Matt Schroeder (mas5)"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    toc_depth: 2
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+
+```{r, warning=FALSE, include=FALSE}
+suppressMessages(library(glmnet)) 
+suppressMessages(library(text2vec))
+suppressMessages(library(tidyverse))
+suppressMessages(library(tm))
+suppressMessages(library(slam))
+suppressMessages(library(stopwords))
+suppressMessages(library(stringr))
+```
+```{r, eval=FALSE}
+library(glmnet)
+library(text2vec)
+library(tidyverse)
+library(tm)
+library(slam)
+library(stopwords)
+library(stringr)
+```
+
+# Reading In The Data
+
+For the process of building the vocabulary (`myvocab`), we used the entire data to achieve a better vocabulary. Below, we are reading in and cleaning the data by cleaning the html tags. We also set our stop words. These words are common words and pronouns that will appear often in the data, but will be completely useless in our analysis.
+
+```{r}
+# reading in all data with a header
+data <- read.table("~/Desktop/Courses/STAT542 (UIUC)/Projects/Project 3/alldata.tsv", 
+                   stringsAsFactors = FALSE, header = TRUE)
+# removing specials characters from each review in train
+data$review = gsub('<.*?>', ' ', data$review)
+#Setting the stop words
+stop_words = c("i", "me", "my", "myself", 
+               "we", "our", "ours", "ourselves", 
+               "you", "your", "yours", 
+               "their", "they", "his", "her", 
+               "she", "he", "a", "an", "and",
+               "is", "was", "are", "were", 
+               "him", "himself", "has", "have", 
+               "it", "its", "the", "us")
+```
+
+# Custom DTM Function (Only Works For This Project)
+
+This is a custom function for creating document term matrices (DTMs) in order to de-clutter the code. Please note that this function is not very robust. It will only work for the context of this project. The function first changes all upper-case letters to lower-case to make the analysis easier. "Great" and "great" are the same word, but `R` would identify them as different. It will end up returning a slightly smaller DTM and save us time by having to do this part manually. Then we set `ngram` to be between one and four terms long. We felt anything longer than that was a borderline sentence, not a vocabulary term. Finally, the vocabulary is pruned such that the proportion is between 0.5 and 0.001. This is to filter out terms that are either too frequent or infrequent so we can eliminate white noise from either drowning out or affecting the results.
+
+```{r}
+customDTM <- function(x, s){
+  it_train = itoken(x$review,
+                  preprocessor = tolower, 
+                  tokenizer = word_tokenizer)
+  tmp.vocab = create_vocabulary(it_train, 
+                              stopwords = s, 
+                              ngram = c(1L,4L))
+  tmp.vocab = prune_vocabulary(tmp.vocab, term_count_min = 10,
+                             doc_proportion_max = 0.5,
+                             doc_proportion_min = 0.001)
+  dtm  = create_dtm(it_train, vocab_vectorizer(tmp.vocab))
+  
+  return(dtm)
+}
+```
+
+# Creating Initial Vocabulary ^[Inspiration from Campuswire post [#1183](https://campuswire.com/c/G3D46BBBA/feed/1183)]
+
+Below, we use a shrinkage method (in this case LASSO) to reduce the vocabulary size to be less than 1,000. The `glmnet()` output then gives us 100 sets of estimated $\beta\text{s}$ which correspond to 100 different $\lambda$ ( the `df`), or the number of non-zero $\beta\text{s}$ for the 100 estimates. We picked the largest `df` that contained less than 1,000 terms (the $\text{36}^{\text{th}}$ column), and stored the words corresponding to that in `myvocab`.
+
+```{r}
+set.seed(0243)
+#Creating Initial DTM
+dtm = customDTM(data, stop_words)
+#First Reduction of Vocab
+tmpfit = glmnet(x = dtm, 
+                y = data$sentiment, 
+                alpha = 1,
+                family='binomial')
+tmpfit$df
+```
+```{r}
+#Selecting df such that # words < 1,000
+myvocab = colnames(dtm)[which(tmpfit$beta[, 36] != 0)]
+```
+
+However, we noticed that there were issues with some of the words in `myvocab` not reflecting sentiment. (Almost like WWHT I.) To fix this we then restarted and recreated a vocabulary with words that we could use to reflect sentiment.
+
+# Creating Vocabulary Again ^[Inspiration from Campuswire post [#1192](https://campuswire.com/c/G3D46BBBA/feed/1192)]
+
+We used a very simple screening method to filter out vocabulary that did not reflect sentiment, a two-sample t-test. The entire data was used as again, we wish to achieve the best vocabulary possible. Using the DTM we obtained from our initial vocabulary construction, we used functions from the the `slam` library to compute the mean and variance of each column (or vocabulary term) for the calculation of the t-test statistics. We then ordered the terms in order of the magnitudes of the t-tests from largest to smallest. The top 2,000 were selected so we would have a large list to select from when put through the shrinkage process (LASSO again). We then did a final check to ensure that the words that never appeared in positive and negative reviews were included in the final vocabulary list. We used the `union()` function to combine all of these terms to create the final list for shrinkage.
+
+## Two-Sample t-Tests
+
+```{r}
+#Running 2-sample t-tests
+v.size = dim(dtm)[2]
+y = data$sentiment
+
+summ = matrix(0, nrow=v.size, ncol=4)
+summ[,1] = colapply_simple_triplet_matrix(
+  as.simple_triplet_matrix(dtm[y==1, ]), mean)
+summ[,2] = colapply_simple_triplet_matrix(
+  as.simple_triplet_matrix(dtm[y==1, ]), var)
+summ[,3] = colapply_simple_triplet_matrix(
+  as.simple_triplet_matrix(dtm[y==0, ]), mean)
+summ[,4] = colapply_simple_triplet_matrix(
+  as.simple_triplet_matrix(dtm[y==0, ]), var)
+
+n1 = sum(y); 
+n = length(y)
+n0 = n - n1
+
+myp = (summ[,1] - summ[,3])/
+  sqrt(summ[,2]/n1 + summ[,4]/n0)
+```
+
+## Combining Main Vocabulary, Positive Vocabulary, & Negative Vocabulary
+
+```{r}
+#Dividing Up The Lists
+words = colnames(dtm)
+id = order(abs(myp), decreasing=TRUE)[1:2000]
+pos.list = words[id[myp[id]>0]]
+neg.list = words[id[myp[id]<0]]
+#Creating a union of all subsets
+id1 = which(summ[, 2] == 0)
+id0 = which(summ[, 4] == 0)
+#Creating New myvocab
+myvocab = words[union(id, union(id0, id1))]
+```
+
+## Shrinkage For Final Vocabulary
+
+To create the final vocabulary, we ran the exact same procedure as we did the first time to reduce the vocabulary to its final size of 994 words. This will be the vocabulary that we use in the model building process.
+
+```{r}
+#Sub-setting New DTM
+dtm_new = dtm[,myvocab]
+#Second Reduction of Vocab
+tmpfit = glmnet(x = dtm_new, 
+                y = data$sentiment, 
+                alpha = 1,
+                family='binomial')
+tmpfit$df
+```
+```{r}
+#Selecting df such that # words < 1,000
+myvocab = colnames(dtm_new)[which(tmpfit$beta[, 41] != 0)]
+```
+
+# Exporting The Vocabulary List
+
+```{r}
+write.table(myvocab, file = "myvocab.txt", col.names = FALSE, row.names = FALSE, 
+            quote = FALSE, sep = "\n")
+```

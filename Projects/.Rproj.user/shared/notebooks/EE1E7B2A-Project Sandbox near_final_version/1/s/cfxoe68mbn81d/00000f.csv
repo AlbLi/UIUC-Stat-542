@@ -1,0 +1,5 @@
+"0","#Going by each recording station"
+"0","Dongsi = Beijing %>% drop_na(PM_Dongsi)"
+"0","Dongsihuan = Beijing %>% drop_na(PM_Dongsihuan)"
+"0","Nongzhanguan = Beijing %>% drop_na(PM_Nongzhanguan)"
+"0","USPost = Beijing %>% drop_na(PM_US.Post)"

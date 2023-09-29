@@ -1,0 +1,171 @@
+---
+title: "Stat 542: QDA, LDA, and FDA"
+date: "Fall 2021"
+output:
+  html_notebook:
+    theme: readable
+    toc: TRUE
+    toc_float: TRUE
+---
+
+
+```{r}
+library(MASS)
+#help(lda)
+#help(qda)
+```
+
+## MNIST Data
+
+
+40 samples from each class, totally 400 training data and 400 test data. Each observation is a 16-by-16 images containing 256 measurements. 
+
+```{r}
+load('digits.Rdata')
+```
+```{r}
+dim(X)
+dim(Xtest)
+table(Y)
+table(Ytest)
+```
+
+```{r, fig.width=4, fig.height=2}
+par(mfrow=c(2,5), mai = c(0.2, 0.2, 0.2, 0.2))
+for(i in 0:9){
+  x = matrix(X[40*i+1,], 16, 16)
+  image(x[,16:1], axes=FALSE)
+}
+```
+## LDA
+
+```{r}
+dig.lda = lda(X,Y);
+Ytest.pred = predict(dig.lda, Xtest)$class
+table(Ytest, Ytest.pred)
+sum(Ytest != Ytest.pred)
+```
+
+## QDA
+
+Error message: the covariance matrix is not invertable. The MASS package does not provide any solution for non-invertable covariance matrices for LDA or QDA.
+
+```{r}
+dig.qda = qda(X,Y) # error message
+```
+
+## FDA
+
+The FDA direction is returned by the `lda` function. Use the directions to project both the training and test data to a lower dimensional space.
+
+>Caution: it is meaningless to show that classes are well-seperated on the training data (same as showing training error is small); we need to check seperation on the test data.
+
+```{r}
+FDA.dir = dig.lda$scaling
+dim(FDA.dir)  # at most 10-1 = 9 directions
+```
+
+```{r}
+F = X%*%FDA.dir
+par(mfrow=c(1,2))
+plot(F[,1],F[,2], type="n", xlab="", ylab="")
+text(F[,1], F[,2], Y, col=Y+1)
+
+Ftest = Xtest%*%dig.lda$scaling;
+plot(Ftest[,1], Ftest[,2], type="n", xlab="", ylab="")
+text(Ftest[,1], Ftest[,2], Ytest, col=Ytest+1)
+```
+
+You can plot the projections on other directions. None of them produces meaningful results on the test data, although the training data are well separated through those projections. 
+
+
+```{r}
+xid = c(1,1,1,2); yid = c(2,3,4,3);
+par(mfrow=c(2,2))
+for(i in 1:4){
+  plot(Ftest[,xid[i]], Ftest[,yid[i]], type="n", xlab="", ylab="");
+  text(Ftest[,xid[i]], Ftest[,yid[i]], Ytest, col=Ytest+1);
+}
+```
+### Computation Details
+
+Check the calculation for FDA
+
+- Compute W (within group covariance matrix)
+
+```{r}
+tmp.lm = lm(X ~ as.factor(Y) - 1); # each x_i - its group mean
+W = cov(tmp.lm$res)
+eigenW = eigen(W)
+summary(eigenW)
+A = eigenW$ve %*% diag(1/sqrt(eigenW$va)) %*% t(eigenW$ve)
+```
+
+- Compute B (between-group covariance matrix)
+
+```{r}
+B = cov(tmp.lm$fitted)
+```
+
+- Extract FDA directions. You'll find that only the first 9 eigenvalues are non-zero.  
+
+```{r}
+tmp.eigen = eigen(A %*% B %*% t(A)) 
+#round(tmp.eigen$va, dig=5)  
+tmp = A %*% tmp.eigen$ve[, 1:9]
+```
+
+The 9 directions computed by us, stored in `tmp`, are
+essentially the same as the ones returned by `lda` up to some scale change. 
+```{r eval = FALSE}
+for(j in 1:9)
+  print(cor(tmp[, j], FDA.dir[, j]))
+```
+
+### FDA vs PCA
+
+Obtain top 100 PCs
+
+```{r}
+Sigma = cov(X)
+dig.eigen=eigen(Sigma);
+PCA.dir = dig.eigen$ve[, 1:100]  # pick top 100 PCA directions
+dim(PCA.dir)
+```
+
+Note that directions from PCA are orthogonal, but directions from FDA are not. FDA directions are orthogonal with respect to the within-class covariance matrix `W`. 
+
+```{r eval=FALSE}
+round(t(FDA.dir) %*% FDA.dir, dig=5)
+round(t(PCA.dir[, 1:10]) %*% PCA.dir[, 1:10], dig=5)  
+round(t(FDA.dir) %*% W %*% FDA.dir, dig=5)
+```
+
+### FDA after PCA
+
+For MNIST data, PCs form a better representation of the 16-by-16 images, instead of the original 256 pixel values. Next we try the following: use PCA to reduce the dimension of the MNIST data from 256 to 100, and then apply LDA. What’s the classification accuracy?
+
+```{r}
+newX = X %*% PCA.dir[, 1:100];
+newdig.lda = lda(newX, Y);
+newXtest = Xtest %*% PCA.dir[, 1:100]
+Ytest.pred = predict(newdig.lda, newXtest)$class
+table(Ytest, Ytest.pred)
+sum(Ytest != Ytest.pred)
+```
+
+Even the projects on the FDA directions look better if we pre-cut the dimension from 256 to the first 100 PCs.
+
+```{r}
+newF=newX%*%newdig.lda$scaling;
+newFtest=Xtest%*%dig.eigen$ve[,1:100]%*%newdig.lda$scaling
+
+par(mfrow=c(1,2))
+plot(newF[,1],newF[,2], type="n", xlab="", ylab="")
+text(newF[,1], newF[,2], Y, col= Y+1)
+plot(newFtest[,1], newFtest[,2], type="n", xlab="", ylab="")
+text(newFtest[,1], newFtest[,2], Ytest, col=Ytest+1)
+```
+
+
+

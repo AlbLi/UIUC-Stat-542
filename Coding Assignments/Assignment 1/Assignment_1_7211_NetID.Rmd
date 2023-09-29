@@ -1,0 +1,211 @@
+---
+title: "Assignment_1_7211_NetID"
+author: "Paul Holaway, Albert Li & Matthew Schroeder"
+date: "2022-08-25"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Importing Libraries and Setting Seed
+
+Only allowed to use the knn function from the class library + ggplot2.
+
+```{r}
+library("class")
+library("ggplot2")
+set.seed(7211)
+```
+
+# Data Generation
+
+## Generate Centers (Starter Code)
+
+```{r}
+p = 2;      
+csize = 10;     # number of centers
+sigma = 1;      # sd for generating the centers 
+m1 = matrix(rnorm(csize*p), csize, p)*sigma + 
+  cbind( rep(1, csize), rep(0, csize))
+m0 = matrix(rnorm(csize*p), csize, p)*sigma + 
+  cbind( rep(0, csize), rep(1, csize))
+```
+
+## Generate Data (Starter Code)
+
+```{r}
+sim_params = list(
+ csize = 10,      # number of centers
+ p = 2,           # dimension
+ s = sqrt(1/5),   # standard deviation for generating data
+ n = 100,         # training size per class
+ N = 5000,        # test size per class
+ m0 = m0,         # 10 centers for class 0
+ m1 = m1         # 10 centers for class 1
+)
+
+generate_sim_data = function(sim_params){
+  p = sim_params$p
+  s = sim_params$s 
+  n = sim_params$n 
+  N = sim_params$N 
+  m1 = sim_params$m1 
+  m0 = sim_params$m0
+  csize = sim_params$csize
+  
+  id1 = sample(1:csize, n, replace = TRUE);
+  id0 = sample(1:csize, n, replace = TRUE);
+  Xtrain = matrix(rnorm(2*n*p), 2*n, p)*s + rbind(m1[id1,], m0[id0,])
+  Ytrain = factor(c(rep(1,n), rep(0,n)))
+  id1 = sample(1:csize, N, replace=TRUE);
+  id0 = sample(1:csize, N, replace=TRUE); 
+  Xtest = matrix(rnorm(2*N*p), 2*N, p)*s + rbind(m1[id1,], m0[id0,])
+  Ytest = factor(c(rep(1,N), rep(0,N)))
+  
+  
+  # Return the training/test data along with labels
+  list(
+  Xtrain = Xtrain,
+  Ytrain = Ytrain,
+  Xtest = Xtest,
+  Ytest = Ytest
+  )
+}
+mydata = generate_sim_data(sim_params)
+```
+
+## Visualization (Starter Code - Optional)
+
+```{r}
+tmp.X = mydata$Xtrain
+tmp.Y = mydata$Ytrain
+m0 = sim_params$m0        # 10 centers for class 0
+m1 = sim_params$m1  
+
+n = nrow(tmp.X)
+mycol = rep("blue", n)
+mycol[tmp.Y == 0] = "red"
+plot(tmp.X[, 1], tmp.X[, 2], type = "n", xlab = "", ylab = "")
+points(tmp.X[, 1], tmp.X[, 2], col = mycol);
+points(m1[, 1], m1[, 2], pch = "+", cex = 2, col = "blue");    
+points(m0[, 1], m0[, 2], pch = "+", cex = 2, col = "red");   
+legend("bottomright", pch = c(1,1), col = c("red", "blue"), 
+       legend = c("class 0", "class 1"))  
+```
+
+# Part I: KNN
+
+Instructions:
+
+- Write your own KNN function without using any packages (use Euclidean Distance);
+- Explain how you handle distance ties and voting ties;
+- Test your code with mydata when K = 1, 3, 5; compare your results with the ones from the R command knn.
+
+```{r}
+typeof(mydata$Xtrain)
+typeof(mydata$Ytrain)
+typeof(mydata$Xtest)
+typeof(mydata$Ytest)
+mydata$Xtest
+```
+
+
+```{r}
+euclidean <- function(a, b) sqrt(sum((a - b)^2))
+
+knn <- function(Xtrain, Ytrain, Xtest, Ytest, k) {
+  # declaring variables
+  success_lopp_count = 0
+  out_count = 0
+  in_count = 0
+
+  # the testing data has 10,000 observations
+  # testing classifier
+  testing_classifiers = rep(0, length(Xtrain[,1]))
+  for (i in 1:length(Xtest[,1])) {
+    # counter to see how many times the loop runs (on the testing data)
+    out_count = out_count + 1
+    
+    
+    # the training data has 200 observations
+    # creating an empty list of 200 observations
+    test_point_from_train_points = rep(0, length(Xtrain[,1]))
+    for (j in 1:length(Xtrain[,1])) {
+    # counter to see how many times the loop runs (on the training data)
+    in_count = in_count + 1
+    
+    # the code below goes through the observation
+    # length(mydata$Xtrain[1,])
+    euc_per_test_point = 0
+    for (k in 1:ncol(Xtrain)) {
+      #
+      euc_per_test_point = euc_per_test_point + euclidean(Xtest[i,k], Xtrain[j,k])
+    }
+    test_point_from_train_points[j] = euc_per_test_point
+    euc_per_test_point = 0
+    
+    }
+    
+    # PSEUDOCODE #
+    # identifying the top k closest euclidian distances
+    
+    # this combines all of the euclidian distances with a 1:200 identifier
+    temp = cbind(test_point_from_train_points,1:length(test_point_from_train_points))
+    
+    # combines the two, only gives the index of the k closest points
+    temp2 = order(temp, decreasing = F)[1:k,]
+    
+    # takes the index of the k smallest euclidian distances and plugs it into the ytrain to get the predictions
+    
+    # takes the mode of the predictions and adds it to the "testing_classifiers" list
+    
+    # SPECIAL CASES: DISTANCE TIE + VOTING TIE (TO BE HANDELED BY COINFLIP)
+    
+  
+    testing_classifiers[i] = min(test_point_from_train_points)
+    success_lopp_count = success_lopp_count + 1
+    print(success_lopp_count)
+    
+    
+  }
+  
+  return (testing_classifiers)
+  
+  
+   #length(Xtrain[,2])
+  
+}
+good_list = knn(Xtrain = mydata$Xtrain, Ytrain = mydata$Ytrain, Xtest = mydata$Xtest, Ytest = mydata$Ytest, k = 1)
+head(good_list)
+```
+
+```{r}
+mydata$Xtrain[200,2]
+```
+
+
+```{r}
+test_point_from_train_points = rep(0, length(mydata$Xtrain[,1]))
+length(test_point_from_train_points)
+#head(mydata$Xtrain)
+#head(mydata$Ytrain)
+cbind(mydata$Xtrain, 1:length(mydata$Xtrain))
+c
+```
+
+
+```{r}
+length(mydata$Xtrain[1,])
+#mydata$Xtrain[1,3]
+x = rep(0,100)
+for (i in 1:100){
+  x[i] = i
+}
+y = rnorm()
+order(x, decreasing = F)[1:3]
+
+temp = cbind(test_point_from_train_points,1:length(test_point_from_train_points))
+temp2 = order(temp decreasing = F)
+```
+
+

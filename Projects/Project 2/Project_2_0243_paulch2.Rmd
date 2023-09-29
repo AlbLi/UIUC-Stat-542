@@ -1,0 +1,118 @@
+---
+title: "(PSL) Project 2"
+date: "Fall 2022"
+author: "Paul Holaway (paulch2), Albert Li (xiangl9), & Matt Schroeder (mas5)"
+---
+
+# Reading in the Libraries
+
+```{r}
+library(lubridate)
+library(tidyverse)
+library(glmnet)
+# probably need to install
+library(prophet)
+```
+
+# Importing and Manipulating the Data
+
+```{r}
+# read raw data and extract date column
+
+# for Matt's desktop 
+train_raw <- readr::read_csv(unz('/Users/mattschroeder/Desktop/542/stat542/Data Sets/train.csv.zip', 'train.csv'))
+
+# for Paul's desktop
+
+# for Albert's desktop
+
+
+#train_raw <- readr::read_csv('train.csv')
+train_dates <- train_raw$Date
+
+# training data from 2010-02 to 2011-02
+start_date <- ymd("2010-02-01")
+end_date <- start_date %m+% months(13)
+
+# split dataset into training / testing
+train_ids <- which(train_dates >= start_date & train_dates < end_date)
+train = train_raw[train_ids, ]
+test = train_raw[-train_ids, ]
+
+# create the initial training data
+readr::write_csv(train, 'train_ini.csv')
+
+# create test.csv 
+# removes weekly sales
+test %>% 
+  select(-Weekly_Sales) %>% 
+  readr::write_csv('test.csv')
+
+# create 10 time-series
+num_folds <- 10
+test_dates <- train_dates[-train_ids]
+
+# month 1 --> 2011-03, and month 20 --> 2012-10.
+# Fold 1 : month 1 & month 2, Fold 2 : month 3 & month 4 ...
+for (i in 1:num_folds) {
+    # filter fold for dates
+    start_date <- ymd("2011-03-01") %m+% months(2 * (i - 1))
+    end_date <- ymd("2011-05-01") %m+% months(2 * (i - 1))
+    test_fold <- test %>%
+        filter(Date >= start_date & Date < end_date)
+    
+    # write fold to a file
+    readr::write_csv(test_fold, paste0('fold_', i, '.csv'))
+}
+```
+
+# Code for the Models
+
+```{r}
+
+for (i in 1:numfolds) {
+  # read in the i-th fold
+  
+  # add a weekly dummy variable
+  
+  # prediction code
+  
+  # return: store, department, sales prediction
+}
+```
+
+
+```{r}
+mypredict = function(){
+  start_date <- ymd("2011-03-01") %m+% months(2 * (t - 1))
+  end_date <- ymd("2011-05-01") %m+% months(2 * (t - 1))
+  test_current <- test %>%
+    filter(Date >= start_date & Date < end_date) %>%
+    select(-IsHoliday)
+  
+  most_recent_date <- max(train$Date)
+  tmp_train <- train %>%
+    filter(Date == most_recent_date) %>%
+    rename(Weekly_Pred = Weekly_Sales) %>%
+    select(-Date, -IsHoliday)
+  
+  test_pred <- test_current %>%
+    left_join(tmp_train, by = c('Dept', 'Store')) 
+  return(test_pred)
+}
+
+```
+
+```{r}
+#fold1 <- readr::read_csv('fold_1.csv')
+#fold1[fold1$IsHoliday == TRUE,]
+
+fold2 <- readr::read_csv('fold_2.csv')
+fold2[fold2$IsHoliday == TRUE,]
+```
+
+```{r}
+test = readr::read_csv('test.csv')
+test[test$IsHoliday == TRUE,]
+```
+

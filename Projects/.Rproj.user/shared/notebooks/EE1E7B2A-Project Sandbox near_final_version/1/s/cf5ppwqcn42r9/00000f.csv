@@ -1,0 +1,2 @@
+"0","#Smoothed Periodogram"
+"0","smooth = mvspec(D$PM_Dongsi, spans = 15, col = ""blue"", lwd = 2)"

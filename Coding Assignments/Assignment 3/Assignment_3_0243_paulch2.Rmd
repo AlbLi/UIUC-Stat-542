@@ -1,0 +1,398 @@
+---
+title: "(PSL) Coding Assignment 3"
+date: "Fall 2022"
+author: "Paul Holaway (paulch2), Albert Li (xiangl9), & Matt Schroeder (mas5)"
+output:
+  html_document:
+    theme: readable
+    toc: TRUE
+    toc_float: TRUE
+  html_notebook:
+    theme: readable
+    toc: TRUE
+    toc_float: TRUE
+---
+
+<style>
+div.answer {background-color: #f3f3f3;}
+</style>
+<div class="answer">
+**Note:** Answers to written questions have been colored in a light gray block to distinguish them.
+
+## Statement of Contribution
+
+Each person in this group contributed equally towards the completion of this project. Direct `R` coding was done by Paul. All group members assisted in mathematical understanding, function logic, and debugging the code along the way. All group members have also individually reviewed both the coding questions for this assignment to ensure we are in agreement with the answers below.
+
+</div>
+
+## Part I: Optimal Span For Loess
+
+### Prepare Your Function
+
+```{r}
+lo.lev <- function(x1, sp){
+  # x1: n-by-1 feature vector
+  # sp: a numerical value for "span"
+  
+  n = length(x1);
+  lev = rep(0, n)
+  
+  ##############################################
+  for(i in 1:n){
+    y = rep(0,n)
+    y[i] = 1
+    yi = loess(y ~ x1, span = sp, control = loess.control(surface = "direct"))$fitted
+    lev[i] = yi[i]
+  }
+  ##############################################
+  
+  return(lev)
+}
+
+onestep_CV <- function(x1, y1, sp){
+  
+  ##############################################
+  #Loess Model
+  l = loess(y1 ~ x1, span = sp, control = loess.control(surface = "direct"))
+  r = l$residuals
+  #Obtaining the Diagonals of S
+  S = lo.lev(x1, sp)
+  #LOO-CV
+  cv = sum((r/(1 - S))^2)/length(x1)
+  #GCV
+  gcv = sum((r/(1 - mean(S)))^2)/length(x1)
+  ##############################################
+  
+  return(list(cv = cv, gcv = gcv))
+}
+
+myCV <- function(x1, y1, span){
+  # x1: feature vector of length n
+  # y1: response vector of length n
+  # span: a sequence of values for "span"
+  
+  m = length(span)
+  cv = rep(0, m)
+  gcv = rep(0, m)
+  
+  for(i in 1:m){
+    tmp = onestep_CV(x1, y1, span[i])
+    cv[i] = tmp$cv
+    gcv[i] = tmp$gcv
+  }
+  return(list(cv = cv, gcv = gcv))
+}
+```
+
+### Test Your Function
+
+```{r}
+mydata <- read.csv("~/Classes/STAT542 (UIUC)/Data Sets/Coding3_Data.csv", stringsAsFactors=TRUE)
+plot(mydata$x, mydata$y, xlab="", ylab="")
+```
+```{r}
+span1 = seq(from = 0.2, by = 0.05, length = 15 )
+cv.out = myCV(mydata$x, mydata$y, span1)
+```
+
+### Print Out Your Results
+
+```{r}
+myout = data.frame(CV = cv.out$cv, GCV = cv.out$gcv, span = span1)
+#Results
+myout
+#Minimum Span for GCV
+myout$span[myout$GCV == min(myout$GCV)]
+#Minimum Span for CV
+myout$span[myout$CV == min(myout$CV)]
+```
+
+### Plot The Fitted Curve
+
+```{r}
+spangcv.min = 0.5 #Optimal Value Chosen Using CV & GCV
+plot(mydata$x, mydata$y, xlab="", ylab="", col="red")
+fx = 1:50/50
+fy = sin(12*(fx+0.2))/(fx+0.2)
+lines(fx, fy, col=8, lwd=2)
+f = loess(y ~ x, mydata, span = spangcv.min)
+lines(fx, predict(f, data.frame(x = fx), surface = "direct"), 
+      lty=2, lwd=2, col="blue")
+```
+
+---
+
+## Part II: Clustering Time Series
+
+### Load Data
+
+```{r}
+#Importing Library
+library(splines)
+#Importing Data
+mydata = read.csv("~/Classes/STAT542 (UIUC)/Data Sets/Sales_Transactions_Dataset_Weekly.csv",
+                  stringsAsFactors=TRUE)
+#Removing Means
+ts = as.matrix(mydata[, 2:53])
+row.names(ts) = mydata[,1]
+ts = ts - rowMeans(ts)
+```
+```{r}
+#setting Seed
+set.seed(0243)
+#Initializing Week in Column Vector
+week = 1:52
+#Initializing B Matrix
+B = matrix(data = rep(0,nrow(ts)*9), nrow = nrow(ts), ncol = 9, byrow = TRUE)
+#Doing the NCS Models
+for(i in 1:nrow(ts)){
+  sales = ts[i,]
+  model = lm(sales ~ ns(week, df = 9))
+  #Saving the Coefficients
+  B[i,] = model$coef[2:10]
+}
+#Calculating F
+F = ns(week, df = 9)
+F1 = F - rowMeans(F)
+```
+
+### Clustering With B
+
+```{r}
+#setting Seed
+set.seed(0243)
+#K Means
+kB = kmeans(B, centers = 6, nstart = 10)
+#Finding Centered TS Data
+kBC = kB$centers
+New = F1 %*% t(kBC)
+#Creating Subsets
+ts1 = data.frame(ts, Cluster = kB$cluster)
+sub1 = ts1[ts1$Cluster == 1,]
+sub2 = ts1[ts1$Cluster == 2,]
+sub3 = ts1[ts1$Cluster == 3,]
+sub4 = ts1[ts1$Cluster == 4,]
+sub5 = ts1[ts1$Cluster == 5,]
+sub6 = ts1[ts1$Cluster == 6,]
+#Plotting
+par(mfrow = c(2,3))
+#Cluster 1
+for(i in 1:nrow(sub1)){
+  if(i == 1){
+    plot(week, sub1[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025",
+         main = "Cluster 1")
+  }
+  lines(week, sub1[i,1:52], col = "#f38025")
+}
+lines(week, New[,1], col = "#003d7c")
+#Cluster 2
+for(i in 1:nrow(sub2)){
+  if(i == 1){
+    plot(week, sub2[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025",
+         main = "Cluster 2")
+  }
+  lines(week, sub2[i,1:52], col = "#f38025")
+}
+lines(week, New[,2], col = "#003d7c")
+#Cluster 3
+for(i in 1:nrow(sub3)){
+  if(i == 1){
+    plot(week, sub3[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025",
+         main = "Cluster 3")
+  }
+  lines(week, sub3[i,1:52], col = "#f38025")
+}
+lines(week, New[,3], col = "#003d7c")
+#Clustering 4
+for(i in 1:nrow(sub4)){
+  if(i == 1){
+    plot(week, sub4[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025", 
+         main = "Cluster 4")
+  }
+  lines(week, sub4[i,1:52], col = "#f38025")
+}
+lines(week, New[,4], col = "#003d7c")
+#Clustering 5
+for(i in 1:nrow(sub5)){
+  if(i == 1){
+    plot(week, sub5[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025",
+         main = "Cluster 5")
+  }
+  lines(week, sub5[i,1:52], col = "#f38025")
+}
+lines(week, New[,5], col = "#003d7c")
+#Clustering 6
+for(i in 1:nrow(sub6)){
+  if(i == 1){
+    plot(week, sub6[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025",
+         main = "Cluster 6")
+  }
+  lines(week, sub6[i,1:52], col = "#f38025")
+}
+lines(week, New[,6], col = "#003d7c")
+```
+
+### Clustering With X
+
+```{r}
+#setting Seed
+set.seed(0243)
+#K Means
+kX = kmeans(ts, centers = 6, nstart = 10)
+#Finding Centered TS Data
+kXC = kX$centers
+kXC = kXC - rowMeans(kXC)
+#Creating Subsets
+ts2 = data.frame(ts, Cluster = kX$cluster)
+sub1X = ts2[ts2$Cluster == 1,]
+sub2X = ts2[ts2$Cluster == 2,]
+sub3X = ts2[ts2$Cluster == 3,]
+sub4X = ts2[ts2$Cluster == 4,]
+sub5X = ts2[ts2$Cluster == 5,]
+sub6X = ts2[ts2$Cluster == 6,]
+#Plotting
+par(mfrow = c(2,3))
+#Cluster 1
+for(i in 1:nrow(sub1X)){
+  if(i == 1){
+    plot(week, sub1X[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025",
+         main = "Cluster 1")
+  }
+  lines(week, sub1X[i,1:52], col = "#f38025")
+}
+lines(week, kXC[1,], col = "#003d7c")
+#Cluster 2
+for(i in 1:nrow(sub2X)){
+  if(i == 1){
+    plot(week, sub2X[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025",
+         main = "Cluster 2")
+  }
+  lines(week, sub2X[i,1:52], col = "#f38025")
+}
+lines(week, kXC[2,], col = "#003d7c")
+#Cluster 3
+for(i in 1:nrow(sub3X)){
+  if(i == 1){
+    plot(week, sub3X[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025",
+         main = "Cluster 3")
+  }
+  lines(week, sub3X[i,1:52], col = "#f38025")
+}
+lines(week, kXC[3,], col = "#003d7c")
+#Clustering 4
+for(i in 1:nrow(sub4X)){
+  if(i == 1){
+    plot(week, sub4X[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025", 
+         main = "Cluster 4")
+  }
+  lines(week, sub4X[i,1:52], col = "#f38025")
+}
+lines(week, kXC[4,], col = "#003d7c")
+#Clustering 5
+for(i in 1:nrow(sub5X)){
+  if(i == 1){
+    plot(week, sub5X[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025",
+         main = "Cluster 5")
+  }
+  lines(week, sub5X[i,1:52], col = "#f38025")
+}
+lines(week, kXC[5,], col = "#003d7c")
+#Clustering 6
+for(i in 1:nrow(sub6X)){
+  if(i == 1){
+    plot(week, sub6X[i,1:52], xlab = "Weeks", ylab = "Weekly Sales", type = "l", 
+         ylim = c(-25,35), col = "#f38025",
+         main = "Cluster 6")
+  }
+  lines(week, sub6X[i,1:52], col = "#f38025")
+}
+lines(week, kXC[6,], col = "#003d7c")
+```
+ 
+---
+
+## Part III: Ridgeless And Double Descent
+
+### Load Data
+
+```{r}
+myData = read.csv("~/Classes/STAT542 (UIUC)/Data Sets/Coding3_dataH.csv", header=FALSE,
+                  stringsAsFactors=TRUE)
+```
+
+### Ridgeless 
+
+```{r}
+ridgeless = function(train, test, eps = 1e-10){
+  Xtrain = train[, -1]
+  Ytrain = train[, 1]
+  Xtest = test[, -1]
+  Ytest  = test[, 1]
+  
+  Xtrain = scale(Xtrain, center = TRUE, scale = FALSE)
+  Xmean = attr(Xtrain, "scaled:center")
+  Xtest = scale(Xtest, Xmean, scale = FALSE)
+  
+  ##############################################
+  #ytrain hat
+  Utrain = prcomp(Xtrain, tol = eps)$rotation #PCA
+  Ztrain = Xtrain %*% Utrain #Orthogonal Xtrain
+  Btrain = t(Ztrain) %*% Ytrain #Coefficient Calculation for the Training Data
+  Btrain = Btrain / colSums(Ztrain^2) #Coefficient Calculation for the Training Data
+  Ytrain.hat = Ztrain %*% Btrain + mean(Ytrain) #Prediction for the Training Data
+  #ytest hat
+  Ztest = Xtest %*% Utrain #Orthogonal Xtest
+  Ytest.hat = Ztest %*% Btrain + mean(Ytrain) #Prediction for the Testing Data
+  ##########################################
+  
+  return(list(
+    train.err = mean((Ytrain - Ytrain.hat)^2), 
+    test.err = mean ((Ytest - Ytest.hat)^2)
+  ))
+}
+```
+
+### Simulation Study
+
+```{r}
+set.seed(0243)
+n = 506
+ntrain = round(n * 0.25)  # training set size
+ntest = n - ntrain  # testing set size
+results = matrix(data = rep(0,30*236), nrow = 30, ncol = 236, byrow = TRUE)
+for(i in 1:30){
+  index = sample(1:506, ntrain, replace = FALSE)
+  train = myData[index,] #Creating Training Data
+  test = myData[-index,] #Creating Testing Data
+  for(j in 6:241){
+    results[i,j-5] = ridgeless(train[,1:j], test[,1:j])$test.err
+  }
+}
+```
+
+### Graphical Display
+
+```{r}
+m = rep(0, 236)
+for(i in 1:236){
+  m[i] = log(median(results[,i]))
+}
+
+plot(5:240, m, xlab = "Number of Features", ylab = "Log of Testing Error")
+```
+<div class="answer">
+
+From the graph above, we can see that there is a double descent pattern for the median test errors (in log scale) versus the number of regression parameters (from 5 to 240) in the simulation study.
+
+</div>

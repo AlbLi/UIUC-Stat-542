@@ -1,0 +1,142 @@
+---
+title: "Stat542: Variable Selection"
+date: "Fall 2022"
+output:
+  html_notebook:
+    theme: readable
+    toc: TRUE
+    toc_float: TRUE
+---
+
+## Load Data
+
+The **Prostate data** can be found [[here](https://hastie.su.domains/ElemStatLearn/data.html)]. The data is to examine the correlation between the level of prostate-specific antigen and a number of clinical measures in men who were about to receive a radical prostatectomy.
+
+- `lcavol`:  log cancer volume
+- `lweight`: log prostate weight
+- `age`: in years
+- `lbph`: log of the amount of benign prostatic hyperplasia
+- `svi`: seminal vesicle invasion
+- `lcp`: log of capsular penetration
+- `gleason`: a numeric vector
+- `pgg45`: percent of Gleason score 4 or 5
+- `lpsa`: response
+
+The first 8 columns are predictors; column 9 is the outcome/response. We do not use column 10, which indicates which 67 observations were used as the "training set" and which 30 as the test set, as described on page 48 in the ESL book. For convenience, we rename the response column with a generic name Y.
+
+
+
+```{r}
+myData = read.table(file = "https://hastie.su.domains/ElemStatLearn/datasets/prostate.data", header = TRUE)
+names(myData)
+myData = myData[, -10]
+names(myData)[9] = 'Y'
+n = dim(myData)[1]         # sample size
+p = dim(myData)[2] - 1     # number of non-intercept predictors
+```
+
+## Full Model
+
+
+```{r}
+full.model = lm( Y ~ ., data = myData);  
+summary(full.model)
+```
+
+## Level-wise Algorithm
+
+**First**, for each size (from 1 to p), find the variable set (of that size) that produces the smallest RSS.
+
+```{r}
+# install.packages("leaps")
+library(leaps)
+b = regsubsets(Y ~ ., data=myData, nvmax = p)
+rs = summary(b)
+rs$which
+```
+
+**Second**, compute the model selection score (AIC/BIC) for those p models and find the one that achieves the the smallest score. 
+
+```{r}
+msize = 1:p;
+par(mfrow=c(1,2))
+Aic = n*log(rs$rss/n) + 2*msize;
+Bic = n*log(rs$rss/n) + msize*log(n)
+plot(msize, Aic, xlab="No. of Parameters", ylab = "AIC")
+plot(msize, Bic, xlab="No. of Parameters", ylab = "BIC")
+```
+
+For this particular data set, AIC and BIC end up selecting different models. The model selected by AIC is larger than the one selected by BIC, which is common. (AIC favors larger models while BIC favors smaller models.) Although the model selected by BIC does not have the smallest AIC score, its AIC score is very close to the smallest one. 
+
+```{r}
+cbind(rs$which[which.min(Aic),], rs$which[which.min(Bic), ])
+```
+
+`leaps` does not return AIC, but BIC. Its BIC differs from what has been computed above, but the difference is a constant, so the two BIC formulas (ours and the one used by leaps) are essentially the same.
+
+```{r}
+cbind(rs$bic, Bic, rs$bic - Bic)
+```
+
+> What are the 2nd and 3rd best models in terms of AIC/BIC?
+
+This cannot be answered by looking at the AIC/BIC plots shown above. Instead, we need to run the following code. 
+
+```{r}
+# ?regsubsets
+b = regsubsets(Y ~ ., data=myData, nbest = 3, nvmax = p)
+rs = summary(b)
+rs$which
+msize = apply(rs$which, 1, sum) - 1
+```
+
+```{r}
+par(mfrow=c(1,2))
+Aic = n*log(rs$rss/n) + 2*msize
+Bic = n*log(rs$rss/n) + msize*log(n)
+plot(msize, Aic, xlab="No. of Parameters", ylab = "AIC")
+plot(msize, Bic, xlab="No. of Parameters", ylab = "BIC")
+plot(msize[msize > 2], Aic[msize > 2], ylim = c(-67, -62), xlab="No. of Parameters", ylab = "AIC")
+plot(msize[msize > 2], Bic[msize > 2], ylim = c(-50, -45), xlab="No. of Parameters", ylab = "BIC")
+```
+
+```{r}
+# top three models by AIC
+rs$which[order(Aic)[1:3],]
+# top three models by BIC
+rs$which[order(Bic)[1:3],]
+```
+
+## Stepwise Algorithm
+
+### Stepwise AIC
+
+Set `trace=0` if you do not want to see the intermediate results
+          
+```{r}
+#stepAIC = step(full.model, trace=0, direction="both")  
+stepAIC = step(full.model, direction="both")
+```
+
+### Stepwise BIC
+
+```{r}
+n = dim(myData)[1]
+stepBIC = step(full.model, direction="both", k=log(n))      
+```
+
+
+### Retrieve Results
+
+How to retrieve the output from those step-wise procedures? 
+
+```{r}
+sel.var.AIC = attr(stepAIC$terms, "term.labels")
+sel.var.BIC = attr(stepBIC$terms, "term.labels")
+sel.var.AIC
+length(sel.var.AIC)
+length(sel.var.BIC)
+c("age", "lcp") %in% sel.var.AIC
+sel.var.BIC %in% sel.var.AIC
+
+```

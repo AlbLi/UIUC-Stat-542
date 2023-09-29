@@ -1,0 +1,267 @@
+---
+title: "Stat542: Linear Regression"
+date: "Fall 2022"
+output:
+  html_notebook:
+    theme: readable
+    toc: TRUE
+    toc_float: TRUE
+---
+
+## Load Data
+
+The **Prostate data** can be found [[here](https://hastie.su.domains/ElemStatLearn/data.html)]. The data is to examine the correlation between the level of prostate-specific antigen and a number of clinical measures in men who were about to receive a radical prostatectomy.
+
+- `lcavol`:  log cancer volume
+- `lweight`: log prostate weight
+- `age`: in years
+- `lbph`: log of the amount of benign prostatic hyperplasia
+- `svi`: seminal vesicle invasion
+- `lcp`: log of capsular penetration
+- `gleason`: a numeric vector
+- `pgg45`: percent of Gleason score 4 or 5
+- `lpsa`: response
+
+The first 8 columns are predictors; column 9 is the outcome/response. We do not use column 10, which indicates which 67 observations were used as the "training set" and which 30 as the test set, as described on page 48 in the ESL book. 
+
+
+
+```{r}
+myData = read.table(file = "https://hastie.su.domains/ElemStatLearn/datasets/prostate.data", header = TRUE)
+dim(myData)
+names(myData)
+```
+
+Remove column 10 and run a quick summary of each column of the data. For convenience, we rename the response column with a generic name Y.
+
+```{r}
+myData = myData[, -10]
+names(myData)[9] = 'Y'
+summary(myData)
+```
+
+Produce a pair-wise scatter plot. Caution: a big figure.
+
+```{r}
+pairs(myData, pch='.')
+```
+
+## Fit a Linear Model
+
+Fit a linear regression model using all the predictors and print the summary of the LS results
+
+```{r}
+lmfit <-  lm(Y ~ ., data = myData)
+summary(lmfit)
+```
+
+Check what are returned by `lm` and learn how to retrieve those results.
+
+```{r}
+names(lmfit)  # What are returned by "lm"?
+names(summary(lmfit)) # What are returned by the summary of lmfit
+```
+
+```{r, eval=FALSE}
+# Regression coefficients including the intercept
+lmfit$coef    
+lmfit$residuals[1]
+length(lmfit$residuals)
+```
+
+Check the calculation for `Residual standard error` and `Multiple R-squared` in the summary output:
+$$
+\sigma = \sqrt{\frac{\sum_{i=1}^n r_i^2}{n - p-1}}, \quad p = \text{ # of non-intercept predictors}
+$$
+$$ 
+R^2 = \frac{\sum_{i=1}^n r_i^2}{\sum_{i=1}^n (y_i - \bar{y})^2} = \frac{\sum_{i=1}^n r_i^2}{\text{SampleVar}(y_i)\times (n-1)} = \frac{\text{SampleVar}(r_i)}{\text{SampleVar}(y_i)}
+$$
+
+```{r}
+n = dim(myData)[1]
+p = dim(myData)[2] - 1
+# Residual standard error
+c(sqrt(sum(lmfit$residuals^2)/(n- p - 1)), summary(lmfit)$sigma)  
+# R-squared
+c(1 - sum(lmfit$residuals^2)/(var(myData$Y)*(n-1)), summary(lmfit)$r.squared) 
+1 - var(lmfit$residuals)/var(myData$Y)
+```
+
+## Prediction
+
+Predict the price for new observations. There are two methods. 
+
+- **Method 1**: prepare the new obs as a matrix (or vector) and then use formula: newX * beta + beta0, where (beta0, beta) are LS coefficients. 
+
+- **Method 2**: prepare the new obs as a data frame with the same column names (for predictor) as `myData`, and then call the `predict` function. 
+
+Next we illustrate this with two new patients: one is 50 years old and the other is 70 years old; all other features take the median values of the 97 patients. 
+
+```{r}
+apply(myData, 2, median)
+newx1 = c(1.45, 3.62, 50, 0.30, 0, -0.80, 7, 15) #1st patient: age = 50
+newx2 = newx1
+newx2[3] = 70 #2nd patient: age = 70
+newx = rbind(newx1, newx2)
+newx %*% lmfit$coef[-1] + lmfit$coef[1]
+```
+
+To use the `predict` function, we need to prepare the new data matrix as a data frame with the same column names; of course, the new data frame does not need to include the response column. 
+
+```{r}
+newdf = data.frame(newx)
+names(newdf) = names(myData[, -dim(myData)[2]]) # assign col names after dropping the last col
+```
+
+An advantage of the `predict` function is that once columns have names, their order does not matter. So, let's shuffle the columns of `newdf` and then predict. The result should be the same as what is returned by Method 1. 
+
+```{r}
+newdf
+newdf = newdf[, sample(1:dim(newdf)[2])]
+newdf
+predict(lmfit, newdata = newdf)
+```
+
+## Rank Deficiency
+
+If the design matrix (including the intercept) is not of full rank, the coefficient vector returned by R will have some elements to be NA. A column has its LS estimate to be NA means that it can be written as a linear combination of some columns listed before it, that is, this is a redundant column.
+
+**NA values do not mean errors**. It just means that in the LS fitting, R ignores the columns with NA coefficients. You can still use the fitted model to do prediction. The result should be the same as if you fit a linear regression model without those columns.
+
+```{r}
+## Add a fake column named "junk", which is a linear combination of the first two predictors
+myData$junk <-  myData[, 1] + myData[, 2]
+tmp.lm <-  lm(Y ~ ., myData)
+summary(tmp.lm)
+
+## The fitted values (for the first 3 obs) are the same. 
+tmp.lm$fitted[1:3]
+lmfit$fitted[1:3]
+
+## drop the "junk" column
+myData = myData[, !names(myData) == 'junk' ]
+```
+## Training vs Test Errors
+
+For linear regression models, when we add more and more variables, the training error (e.g., RSS or MSE) is always decreasing, but the test error (prediction error on an independent test data) is not necessary decreasing. We illustrate this by randomly dividing the data into training (60\%) and test (40\%) and then reporting the training/test errors when we sequentially add more and more predictors. 
+
+```{r}
+n <- dim(myData)[1] # sample size
+p <-  dim(myData)[2] - 1 # number of non-intercept predictors
+
+ntrain <-  round(n*0.6)
+train.id <-  sample(1:n, ntrain)
+train.MSE <-  rep(0, p)
+test.MSE <-  rep(0, p)
+
+for(i in 1:p){
+  myfit <-  lm(Y ~ ., myData[train.id, c(1:i, (p+1))])
+  train.Y <-  myData[train.id, (p+1)]
+  train.Y.pred <-  myfit$fitted
+  train.MSE[i] <-  mean((train.Y - train.Y.pred)^2)
+  
+  test.Y <-  myData[-train.id, (p+1)]
+  test.Y.pred <-  predict(myfit, newdata = myData[-train.id, ])
+  test.MSE[i] <-  mean((test.Y - test.Y.pred)^2)
+}
+
+## type="n": don't plot; just set the plotting region
+  plot(c(1, p), range(train.MSE, test.MSE), type="n", xlab="# of variables", ylab="MSE")
+  points(train.MSE, col = "blue", pch = 1)
+  lines(train.MSE, col = "blue", pch = 1)
+  points(test.MSE, col = "red", pch = 2)
+  lines(test.MSE, col = "red", pch = 2)
+```
+
+You can run the code above multiple times. 
+
+- In most cases, the blue line is below the red line (i.e., training error is better than test error), but sometimes, the red line could be below the blue line (i.e., test error is even better than the training error; this is possible due to randomness). 
+
+- In each iteration, you would see the blue line is always monotonically decreasing, but red line is not necessarily decreasing. Check the differences between the adjacent terms, which should be always negative for the blue line, but could have some positive terms for the red line.
+
+```{r, eval=FALSE}
+diff(train.MSE) ## always negative
+diff(test.MSE)  ## not always negative
+```
+
+## Interpret LS Coefficients
+
+How to interpret LS coefficients? For example, the coefficient for variable `age` measures the average change of the response per year, **with all other predictors held fixed**.
+
+Note that the result from SLR (regression with just one non-intercept predictor) might be different from the one from MLR. For example, SLR suggests that `age` has a  negative effect on the response, while MLR suggests the opposite.
+
+Such seemingly contradictory statements are caused by correlations among predictors. In this case, “age” has positive correlation with a bunch of predictors with positive effect on Y; So in the joint model, the coefficient with “age” turns out to be negative, to correct the positive contribution that has already been introduced to the model through the other predictors.
+
+```{r}
+summary(lm(Y~ age, myData))
+round(cor(myData), dig=2)
+```
+
+
+## Partial Regression Coef
+
+Check how to retrieve the LS coefficient for `age` using Algorithm 3.1
+
+```{r}
+y.star <-  lm(Y ~ ., data = subset(myData, select = -age))$res
+age.star <-  lm(age ~ ., data = subset(myData, select = -Y))$res
+tmpfit <-  lm(y.star ~ age.star)
+```
+
+The LS coefficient for `age` (from `lmfit`) is the same as the one from `tmpfit`. The residuals from the two LS models are also the same.
+
+```{r}
+tmpfit$coef
+sum((lmfit$res - tmpfit$res)^2)
+```
+
+## F-test
+
+Test a single predictor (in this case, F-test = t-test).
+
+```{r}
+lmfit0 <- lm(Y ~ ., data = subset(myData, select = -age))
+anova(lmfit0, lmfit)
+```
+
+Test multiple predictors.
+
+```{r}
+lmfit0 <- lm(Y ~ ., data = myData[, -c(1:3)])
+anova(lmfit0, lmfit)
+```
+
+
+## Collinearity
+
+Check the Car Seat Position Data from faraway package.
+
+Car drivers like to adjust the seat position for their own comfort. Car designers would find it helpful to know how different drivers will position the seat depending on their size and age. Researchers at the [HuMoSim laboratory](http://humosim.org/) at the University of Michigan collected data on 38 drivers.
+
+- Age:
+- Weight:
+- HtShoes: height with shoes in cm
+- Ht: height without shoes in cm
+- Seated: seated height in cm
+- Arm: lower arm length in cm
+- Thigh: thigh length in cm
+- Leg: lower leg length in cm
+- hipcenter: horizontal distance of the midpoint of the hips from a fixed location in the car in mm
+
+The researchers were interested in determining if a relationship exists between hipcenter and the other variables. Due to the high correlations among the predictors, we see high R-square, significant overall F-test, but no individual variables are significant.
+
+```{r}
+library(faraway)
+data(seatpos)
+pairs(seatpos, pch = ".")
+summary(lm(hipcenter ~ . , data=seatpos))
+## check pairwise correlation
+round(cor(seatpos), dig=2)
+```
+
+If we remove some (almost) redundant variables, the LS results make much more sense.
+
+```{r}
+summary(lm(hipcenter ~ Age + Weight + Ht + Seated, data=seatpos))
+summary(lm(hipcenter ~ Ht, data=seatpos))
+```

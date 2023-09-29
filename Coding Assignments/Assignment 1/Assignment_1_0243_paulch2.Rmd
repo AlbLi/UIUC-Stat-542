@@ -1,0 +1,427 @@
+---
+title: "Coding Assignment 1"
+date: "Fall 2022"
+author: "Paul Holaway (paulch2), Albert Li (xiangl9), & Matt Schroeder (mas5)"
+output:
+  html_notebook:
+    theme: readable
+    toc: TRUE
+    toc_float: TRUE
+---
+
+<style>
+div.answer {background-color: #f3f3f3;}
+</style>
+<div class="answer">
+**Note:** Answers to written questions have been colored in a light gray block to distinguish them.
+
+## Statement of Contribution
+
+Each person in this group contributed equally towards the completion of this project. Direct `R` coding was done by Paul and Matt. Function logic was done by each member of the group with Albert taking the lead. All group members assisted in debugging the code along the way. All group members have also individually reviewed both the coding and written questions for this assignment to ensure we are in agreement with the answers below.
+
+</div>
+
+```{r}
+library(ggplot2)
+library(class)
+```
+## Data Generation
+
+### Generate Centers
+
+```{r}
+set.seed(0243)
+p = 2;      
+csize = 10;     # number of centers
+sigma = 1;      # sd for generating the centers 
+m1 = matrix(rnorm(csize*p), csize, p)*sigma + 
+  cbind( rep(1, csize), rep(0, csize))
+m0 = matrix(rnorm(csize*p), csize, p)*sigma + 
+  cbind( rep(0, csize), rep(1, csize))
+```
+
+
+### Generate Data
+
+
+```{r}
+sim_params = list(
+ csize = 10,      # number of centers
+ p = 2,           # dimension
+ s = sqrt(1/5),   # standard deviation for generating data
+ n = 100,         # training size per class
+ N = 5000,        # test size per class
+ m0 = m0,         # 10 centers for class 0
+ m1 = m1         # 10 centers for class 1
+)
+
+generate_sim_data = function(sim_params){
+  p = sim_params$p
+  s = sim_params$s 
+  n = sim_params$n 
+  N = sim_params$N 
+  m1 = sim_params$m1 
+  m0 = sim_params$m0
+  csize = sim_params$csize
+  
+  id1 = sample(1:csize, n, replace = TRUE);
+  id0 = sample(1:csize, n, replace = TRUE);
+  Xtrain = matrix(rnorm(2*n*p), 2*n, p)*s + rbind(m1[id1,], m0[id0,])
+  Ytrain = factor(c(rep(1,n), rep(0,n)))
+  id1 = sample(1:csize, N, replace=TRUE);
+  id0 = sample(1:csize, N, replace=TRUE); 
+  Xtest = matrix(rnorm(2*N*p), 2*N, p)*s + rbind(m1[id1,], m0[id0,])
+  Ytest = factor(c(rep(1,N), rep(0,N)))
+  
+  
+  # Return the training/test data along with labels
+  list(
+  Xtrain = Xtrain,
+  Ytrain = Ytrain,
+  Xtest = Xtest,
+  Ytest = Ytest
+  )
+}
+```
+ 
+
+```{r}
+set.seed(0243)
+mydata = generate_sim_data(sim_params)
+```
+
+### Visualization
+
+(This is not required.) You can use the following code to plot the training or test data. 
+
+```{r}
+tmp.X = mydata$Xtrain
+tmp.Y = mydata$Ytrain
+m0 = sim_params$m0        # 10 centers for class 0
+m1 = sim_params$m1  
+
+n = nrow(tmp.X)
+mycol = rep("blue", n)
+mycol[tmp.Y == 0] = "red"
+plot(tmp.X[, 1], tmp.X[, 2], type = "n", xlab = "", ylab = "")
+points(tmp.X[, 1], tmp.X[, 2], col = mycol);
+points(m1[, 1], m1[, 2], pch = "+", cex = 2, col = "blue");    
+points(m0[, 1], m0[, 2], pch = "+", cex = 2, col = "red");   
+legend("bottomright", pch = c(1,1), col = c("red", "blue"), 
+       legend = c("class 0", "class 1"))  
+```
+
+--- 
+
+## Part I: KNN
+
+### `kNN` Function
+
+```{r}
+kNN <- function(Xtrain, Ytrain, Xtest, k) {
+
+  # Testing classifier
+  test_class = rep(0, length(Xtest[,1]))
+  
+  for (i in 1:length(Xtest[,1])) {
+    # Creating an empty list
+    distance = rep(0, length(Xtrain[,1]))
+    
+    for (j in 1:length(Xtrain[,1])) {
+    # The code below goes through the observations.
+    euc = 0
+    
+      for(m in 1:ncol(Xtrain)){
+        #Calculation of euclidean distance.
+        euc = euc + (Xtest[i,m] - Xtrain[j,m])^2
+      }
+  
+    distance[j] = sqrt(euc)
+    }  
+
+    # Identifying the top k closest euclidean distances.
+    # Combines all of the euclidean distances with a 1:n identifier.
+    temp = cbind(1:length(distance), Ytrain, distance)
+    # Combines the two, only gives the index of the k closest points.
+    temp = temp[order(temp[,3]),]
+    #Fixing factor re-level issue.
+    temp[,2] = temp[,2] - 1
+    #Choosing the k nearest observations
+    temp2 = head(temp, k)
+
+    #Handling Distance Ties
+    if(temp2[k,3] == temp[k+1,3]){
+      if(temp2[k,2] != temp[k+1,2]){
+        temp3 = cbind(temp2[k,],temp[k+1,])
+        temp4 = temp3[sample(nrow(temp3),size = 1),]
+        temp2 = cbind(head(temp2,k-1),temp4)
+      }
+    }
+    
+    #Making the Prediction
+    mu = mean(temp2[,2])
+    
+    if(mu > 0.5){
+      pred = 1
+    } else if(mu < 0.5){
+      pred = 0
+    } else {
+      #Handling voting Ties
+      pred = rbinom(1,1,0.5)
+    }
+    
+    test_class[i] = pred
+  }
+  
+  return(test_class)
+  
+}
+```
+```{r}
+#Testing of Function
+good_list = kNN(Xtrain = mydata$Xtrain, Ytrain = mydata$Ytrain, Xtest = mydata$Xtest, k = 5)
+```
+
+<div class="answer">
+
+### Handling Ties
+
+For our `knn` algorithm, we will implement the following procedure for ties to choose the prediction.
+
+- Distance Tie
+  - Check if predictions are different
+  - If yes, "flip a coin"
+  - If no, use prediction
+- Voting Tie
+  - "Flip a coin"
+  
+</div>
+
+### Comparison with `knn`
+
+#### Our `kNN` Function
+
+```{r}
+test.pred1a = kNN(Xtrain = mydata$Xtrain, Ytrain = mydata$Ytrain, Xtest = mydata$Xtest, k = 1)
+table(mydata$Ytest, test.pred1a)
+```
+```{r}
+test.pred2a = kNN(Xtrain = mydata$Xtrain, Ytrain = mydata$Ytrain, Xtest = mydata$Xtest, k = 3)
+table(mydata$Ytest, test.pred2a)
+```
+```{r}
+test.pred3a = kNN(Xtrain = mydata$Xtrain, Ytrain = mydata$Ytrain, Xtest = mydata$Xtest, k = 5)
+table(mydata$Ytest, test.pred3a)
+```
+
+#### `knn` Function From `R`
+
+```{r}
+test.pred1b = knn(mydata$Xtrain, mydata$Xtest, mydata$Ytrain, k = 1)
+table(mydata$Ytest, test.pred1b)
+```
+```{r}
+test.pred2b = knn(mydata$Xtrain, mydata$Xtest, mydata$Ytrain, k = 3)
+table(mydata$Ytest, test.pred2b)
+```
+```{r}
+test.pred3b = knn(mydata$Xtrain, mydata$Xtest, mydata$Ytrain, k = 5)
+table(mydata$Ytest, test.pred3b)
+```
+
+---
+
+## Part II: cv-KNN
+
+### kNN 10-fold Cross Validation
+
+```{r}
+cvKNN = function(traindata, Ytrain, foldNum) {
+  #Initial values necessary for calculations.
+  n = nrow(traindata)
+  foldSize = floor(n/foldNum)  
+  KVector = seq(1, (nrow(traindata) - foldSize), 1)
+  cvErrorRates = rep(0,length(KVector))
+  error = 0
+  
+  #Shuffling of the data.
+  myIndex = sample(1 : n)
+  
+  #Testing each possible value of k (1:180 in this case).
+  for(i in KVector){
+    #Implementation of the CV to choose optimal value of k.
+    for(runId in 1:foldNum){
+    testSetIndex = ((runId-1)*foldSize + 1):(ifelse(runId == foldNum, n, runId*foldSize))
+    testSetIndex = myIndex[testSetIndex]
+    trainX = traindata[-testSetIndex, ]
+    trainY = Ytrain[-testSetIndex]
+    testX = traindata[testSetIndex, ]
+    testY = Ytrain[testSetIndex]
+    predictY = knn(trainX, testX, trainY, KVector[i])
+    #Calculation of the testing error.
+    error = error + sum(predictY != testY) 
+    }
+    
+    error = error / n
+    cvErrorRates[i] = error
+    error = 0
+  }
+  
+  #Choosing the optimal value of k.
+  #Ties in the testing error are done with choosing the highest value for k.
+  #Higher k results in a simpler model.
+  result = list()
+  result$bestK = max(KVector[cvErrorRates == min(cvErrorRates)])
+  result$cvError = cvErrorRates[KVector == result$bestK]
+  return(result)
+}
+```
+```{r}
+set.seed(0243)
+better_list = cvKNN(mydata$Xtrain, mydata$Ytrain, 10)
+better_list
+```
+
+<div class="answer">
+
+### How to Handle Non-Uniqueness of Optimal K
+
+When there is a tie in the calculation for the 10-fold cross validation error, we will choose the larger `k` value because a larger `k` value will result in a simpler model.
+  
+</div>
+
+
+----
+
+## Part III: Bayes Rule
+
+```{r}
+bayes = function(x, sim_params) {
+  m1 = sim_params$m1
+  m0 = sim_params$m0
+  s = sim_params$s
+  
+  #Calculating the numerator.
+  d1 = sum(exp(-apply((t(m1) - x)^2, 2, sum) / (2 * s^2)))
+  #Calculating the denominator.
+  d0 = sum(exp(-apply((t(m0) - x)^2, 2, sum) / (2 * s^2)))
+  
+  #Making the prediction.
+  if(d1/d0 >= 1){
+    Y = 1
+  } else{
+    Y = 0
+  }
+    return(Y)
+}
+
+predictions = apply(mydata$Xtest, 1, bayes, sim_params)
+predictions
+```
+
+### Decision Boundary
+
+Suppose your function for Bayes Rule is called `BayesPredict`, which looks as the following
+```{r}
+BayesPredict = function(x, sim_params){
+
+  m1 = sim_params$m1
+  m0 = sim_params$m0
+  s = sim_params$s
+
+    d1 = sum(exp(-apply((t(m1) - x)^2, 2, sum) / (2 * s^2)))
+    d0 = sum(exp(-apply((t(m0) - x)^2, 2, sum) / (2 * s^2)))
+
+    if(d1/d0 >= 1){
+      Y = 1
+    } else{
+      Y = 0
+    }
+    return(Y)
+}
+
+Xmin = min(mydata$Xtrain[, 1])
+Xmax = max(mydata$Xtrain[, 1])
+X1Vector = seq(Xmin, Xmax, (Xmax - Xmin)/99)
+Xmin = min(mydata$Xtrain[, 2])
+Xmax = max(mydata$Xtrain[, 2])
+X2Vector = seq(Xmin, Xmax, (Xmax - Xmin)/99)
+grid = expand.grid(X1Vector, X2Vector)
+colnames(grid) = c('X1', 'X2')
+```
+```{r}
+BayesRuleGrid = grid
+BayesRuleGrid$Y = as.factor(apply(BayesRuleGrid, 1, BayesPredict, sim_params))
+
+tmp.data = data.frame(X1 = c(sim_params$m0[,1], sim_params$m1[,1]),
+                      X2 = c(sim_params$m0[,2], sim_params$m1[,2]),
+                      Y = c(rep(0, 10), rep(1, 10)))
+ggplot(data = tmp.data, aes(x = X1, y = X2, color = as.factor(Y))) + 
+  geom_point(shape = 3, size = 3) +
+  geom_point(data = BayesRuleGrid, 
+             aes(x = X1, y = X2, color = Y), size = 0.5, alpha = 0.5) + 
+  scale_color_manual(name = "Y",
+                     values = c("0" = "red",
+                                "1" = "blue"), 
+                     labels = c("class 0", "class 1"))
+```
+```{r}
+KNNGrid = grid
+KNNGrid$Y = as.factor(apply(grid, 1, knn, 
+                              train = mydata$Xtrain, 
+                              cl = mydata$Ytrain, 
+                              k = 12))
+ggplot(data = tmp.data, aes(x = X1, y = X2, color = as.factor(Y))) + 
+  geom_point(shape = 3, size = 3) +
+  geom_point(data = KNNGrid, 
+             aes(x = X1, y = X2, color = Y), size = 0.5, alpha = 0.5) + 
+  scale_color_manual(name = "Y",
+                     values = c("0" = "red",
+                                "1" = "blue"), 
+                     labels = c("class 0", "class 1"))
+```
+
+---
+
+## Part IV: Simulation Study
+
+```{r}
+set.seed(0243)
+
+#Initialization of the data frames that will contain the testing errors.
+thing1 = rep(0,50)
+thing2 = data.frame(rep(0,50),rep(0,50),rep(0,50))
+thing3 = rep(0,50)
+
+for(i in 1:50){
+  
+  #Generating the date using the same centers (m0 and m1).
+  fun_data = generate_sim_data(sim_params)
+  
+  #Calculation of the testing error for kNN with k = 1.
+  pred1 = knn(fun_data$Xtrain, fun_data$Xtest, fun_data$Ytrain, k = 1)
+  thing1[i] = sum(pred1 != fun_data$Ytest)/length(pred1)
+  
+  #Calculation of optimal k for kNN using 10-fold CV.
+  temp2 = cvKNN(fun_data$Xtrain, fun_data$Ytrain, 10)
+  thing2[i,1] = temp2$bestK
+  thing2[i,2] = temp2$cvError
+  #Calculation of the testing error for kNN with CV optimally chosen k.
+  pred2 = knn(fun_data$Xtrain, fun_data$Xtest, fun_data$Ytrain, k = thing2[i,1])
+  thing2[i,3] = sum(pred2 != fun_data$Ytest)/length(pred2)
+  
+  #Calculation of the testing error using Bayes Rule.
+  pred3 = apply(fun_data$Xtest, 1, bayes, sim_params)
+  thing3[i] = sum(pred3 != fun_data$Ytest)/length(pred3)
+  
+}
+```
+```{r}
+errors = data.frame(k1 = thing1, CV = thing2$rep.0..50..2, Bayes = thing3,
+                    Optimal_K = thing2$rep.0..50.)
+boxplot(errors[,-4], beside = TRUE, main = "Boxplot of Testing Errors")
+#Mean of optimal K
+mean(errors$Optimal_K)
+#Standard Error of optimal K
+sd(errors$Optimal_K)
+```

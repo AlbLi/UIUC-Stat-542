@@ -1,0 +1,5 @@
+"0","#Sub-setting the aggregated mean PM 2.5 readings for each day in the four locations."
+"0","D = aggregate(PM_Dongsi ~ Date, Dongsi, mean)"
+"0","DS = aggregate(PM_Dongsihuan ~ Date, Dongsihuan, mean)"
+"0","N = aggregate(PM_Nongzhanguan ~ Date, Nongzhanguan, mean)"
+"0","US = aggregate(PM_US.Post ~ Date, USPost, mean)"

@@ -1,0 +1,42 @@
+---
+title: "Quiz 3"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 11-14
+
+```{r}
+library(leaps)
+#Importing the Data
+prostate = read.table("https://web.stanford.edu/~hastie/ElemStatLearn/datasets/prostate.data", header = TRUE)
+traindata = prostate[prostate$train==TRUE,]
+testdata = prostate[prostate$train==FALSE,]
+#MLR Model
+model = lm(lpsa ~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, data = traindata)
+#Test Error #11
+prdt = predict(model, newdata = testdata[,1:8])
+sum((prdt - testdata$lpsa)^2)
+#AIC Selection #12
+RSSleaps = regsubsets(traindata[,1:8], traindata[,9])
+sumleaps = summary(RSSleaps, matrix=T)
+sumleaps
+n = length(traindata[,9])
+msize0 = apply(sumleaps$which, 1, sum)
+msize = msize0 - 1
+BIC = sumleaps$bic; BIC = BIC - min(BIC); BIC = BIC/max(BIC)
+AIC = n*log(sumleaps$rss/n) + 2*msize0
+AIC = AIC - min(AIC); AIC = AIC/max(AIC)
+cbind(msize, AIC, BIC)
+#Prediction Errors
+modelAIC = lm(lpsa ~ lcavol + lweight + age + lbph + svi + lcp + pgg45, data = traindata)
+modelBIC = lm(lpsa ~ lcavol + lweight, data = traindata)
+prdtAIC = predict(modelAIC, newdata = testdata[,c(1:6,8)])
+prdtBIC = predict(modelBIC, newdata = testdata[,1:2])
+sum((prdtAIC - testdata$lpsa)^2)
+sum((prdtBIC - testdata$lpsa)^2)
+```
+

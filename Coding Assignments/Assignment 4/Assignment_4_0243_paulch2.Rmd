@@ -1,0 +1,537 @@
+---
+title: "(PSL) Coding Assignment 4"
+date: "Fall 2022"
+author: "Paul Holaway (paulch2), Albert Li (xiangl9), & Matt Schroeder (mas5)"
+output:
+  html_document:
+    theme: readable
+    toc: TRUE
+    toc_float: TRUE
+    toc_depth: 4
+  html_notebook:
+    theme: readable
+    toc: TRUE
+    toc_float: TRUE
+    toc_depth: 4
+---
+
+<style>
+div.answer {background-color: #f3f3f3;}
+</style>
+<div class="answer">
+**Note:** Answers to written questions have been colored in a light gray block to distinguish them.
+
+## Statement of Contribution
+
+The work for this project was divided up as follows. Paul did the derivations required for part I. Matt and Paul worked together to write the EM Algorithm for part I with Paul doing the physical coding and Matt aiding with implementing the logic. Albert wrote the Baum-Welch Algorithm for part II. The Viterbi Algorithm was created collectively by Paul and Albert.
+
+</div>
+
+## Part I: EM Algorithm for Gaussian Mixtures
+
+### Derivations
+
+1. Expression of the Marginal log-Likelihood Function
+
+$$
+\ln[\prod_{i=1}^np(x_i|p_{1:G},\mu_{1:G},\Sigma)]
+$$
+$$
+=\sum_{i=1}^nln[p(x_i|p_{1:G},\mu_{1:G},\Sigma)]
+$$
+$$
+=\sum_{i=1}^n\ln(\sum_{k=1}^Gp_k\frac{e^{-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)}}{\sqrt{(2\pi)^p|\Sigma|}})
+$$
+$$
+=\sum_{i=1}^n\ln(\frac{1}{\sqrt{(2\pi)^p|\Sigma|}}\sum_{K=1}^Gp_ke^{-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)})
+$$
+$$
+=\sum_{i=1}^n[\ln(\sum_{k=1}^Gp_ke^{-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)})-\ln(\sqrt{(2\pi)^p|\Sigma|})]
+$$
+$$
+=\sum_{i=1}^n[\ln(\sum_{k=1}^Gp_ke^{-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)})-\frac{1}{2}\ln((2\pi)^p|\Sigma|)]
+$$
+$$
+=\sum_{i=1}^n[\ln(\sum_{k=1}^Gp_ke^{-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)})-\frac{p}{2}\ln(2\pi)-\frac{1}{2}\ln(|\Sigma|)]
+$$
+
+* **NOTE:** In this case, $p=2$ in this case.
+
+$$
+=\boxed{\sum_{i=1}^n[\ln(\sum_{k=1}^Gp_ke^{-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)})-\ln(2\pi)-\frac{1}{2}\ln(|\Sigma|)]}
+$$
+
+2. Expression of the Complete log-Likelihood Function
+
+$$
+\ln[\prod_{i=1}^np(x_i,Z_i|p_{1:G},\mu_{1:G},\Sigma)]=\prod_{i=1}^n\prod_{k=1}^G[p_k\frac{e^{-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)}}{\sqrt{(2\pi)^p|\Sigma|}}]^{\mathbb{1}_{\{Z_i=k\}}}
+$$
+$$
+=\boxed{\sum_{i=1}^n\sum_{k=1}^G\mathbb{1}_{\{Z_i=k\}}[\ln(p_k)-\frac{p}{2}\ln(2\pi)-\frac{1}{2}\ln(|\Sigma|)-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)]}
+$$
+
+3. Expression of the Distribution of $Z_i$'s at the E-Step
+
+$$
+p_{ik}=P(Z_i=k|x_i,p^{(t)}_{1:G},\mu^{(t)}_{1:G},\Sigma^{(t)})=\frac{P^{(t)}(x_i,Z_i=k,p^{(t)}_{1:G},\mu^{(t)}_{1:G},\Sigma^{(t)})}{P^{(t)}(x_i,p^{(t)}_{1:G},\mu^{(t)}_{1:G},\Sigma^{(t)})}
+$$
+$$
+=\frac{p_k(t)\frac{1}{\sqrt{(2\pi)^p|\Sigma^{(t)}|}}e^{-\frac{1}{2}(x_i-\mu_k^{(t)})^T\Sigma^{(t)\text{ }-1}(x_i-\mu_k^{(t)})}}{\sum_{k=1}^Gp_k^{(t)}\frac{1}{\sqrt{(2\pi)^p|\Sigma^{(t)}|}}e^{-\frac{1}{2}(x_i-\mu_k^{(t)})^T\Sigma^{(t)\text{ }-1}(x_i-\mu_k^{(t)})}}
+$$
+$$
+=\boxed{\frac{p_k^{(t)}e^{-\frac{1}{2}(x_i-\mu_k^{(t)})^T\Sigma^{(t)\text{ }-1}(x_i-\mu_k^{(t)})}}{\sum_{k=1}^Gp_k^{(t)}e^{-\frac{1}{2}(x_i-\mu_k^{(t)})^T\Sigma^{(t)\text{ }-1}(x_i-\mu_k^{(t)})}}}
+$$
+
+4. Expression of the Objective Function to Maximize at the M-Step
+
+$$
+g(p_{1:G},\mu_{1:G},\Sigma)=\mathbb{E}[\ln\prod_{i=1}^np(x_i,Z_i|p_{1:G},\mu_{1:G},\Sigma)]
+$$
+$$
+=\mathbb{E}[\sum_{i=1}^n\sum_{k=1}^G\mathbb{1}_{\{Z_i=k\}}\ln(p_k\frac{e^{-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)}}{\sqrt{(2\pi)^p|\Sigma|}})]
+$$
+$$
+=\sum_{i=1}^n\sum_{k=1}^Gp_{ik}\ln(p_k\frac{e^{-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)}}{\sqrt{(2\pi)^p|\Sigma|}})
+$$
+$$
+=\boxed{\sum_{i=1}^n\sum_{k=1}^G[p_{ik}(\ln(p_k)-\frac{1}{2}(x_i-\mu_k)^t\Sigma^{-1}(x_i-\mu_k)-\frac{p}{2}\ln(2\pi)-\frac{1}{2}\ln(|\Sigma|))]}
+$$
+
+5.
+
+$$
+J(p_k)=\sum_{i=1}^n\sum_{k=1}^Gp_{ik}\ln(p_k)
+$$
+$$
+=\sum_{k=1}^G\ln(p_k)\sum_{i=1}^np_{ik}=\sum_{k=1}^G\ln(p_k)p_{+k}
+$$
+
+* $\sum_{k=1}^Gp_k=1$
+* $0\le p_k\le1$
+* $p_k \propto p_{+j}$
+
+$$
+\implies p_k =\frac{p_{+k}}{p_{++}}
+$$
+$$
+\implies\boxed{p_k^{(t+1)}=\frac{\sum_{i=1}^np_{ik}^{(t)}}{n}}
+$$
+$$
+J(\mu)=-\frac{1}{2}\sum_{i=1}^n(x_i-\mu_k)^T\Sigma^{-1}(x_i-\mu_k)p_{ik}
+$$
+$$
+\frac{\partial J}{\partial\mu_k}=\sum_{i=1}^n\Sigma^{-1}(x_i-\mu_k)p_{ik}=0
+$$
+$$
+\sum_{i=1}^np_{ik}x_i-p_{+k}\mu_k=0
+$$
+$$
+\sum_{i=1}^np_{ik}x_i=p_{+k}\mu_k
+$$
+$$
+\boxed{\mu_k^{(t+1)}=\frac{\sum_{i=1}^np_{ik}^{(t)}x_i}{\sum_{i=1}^np_{ik}^{(t)}}}
+$$
+$$
+J(\Sigma)=\sum_{i=1}^n\sum_{k=1}^Gp_{ik}(x_i-\mu_k)^T\Sigma^{-1}(x_i-\mu_k)+n\ln(|\Sigma|)
+$$
+$$
+\text{Tr}(S\Sigma^{-1})=\sum_{i=1}^n\sum_{k=1}^Gp_{ik}(x_i-\mu_k)^T\Sigma^{-1}(x_i-\mu_k)
+$$
+$$
+\implies J(\Sigma)=\text{Tr}(S\Sigma^{-1})+n\ln(|\Sigma|)
+$$
+$$
+\frac{\partial J}{\partial\Sigma}=\frac{-n}{|\Sigma|}\frac{\partial|\Sigma|}{\partial\Sigma}-S\frac{\partial\Sigma^{-1}}{\partial\Sigma}=-n\Sigma^{-1}+S\Sigma^{-2}=0
+$$
+$$
+S\Sigma^{-2}=n\Sigma^{-1}\implies S\Sigma^{-1}=n\implies\Sigma=\frac{S}{n}
+$$
+$$
+\boxed{\Sigma^{(t+1)}=\frac{\sum_{i=1}^n\sum_{k=1}^Gp_{ik}^t(x_i-\mu_k^{(t+1)})(x_i-\mu_k^{(t+1)})^T}{n}}
+$$
+
+
+### Prepare Your Function
+
+```{r}
+Estep <- function(data, G, para){
+  n = nrow(data)
+  P = matrix(rep(0,n*G), nrow = n, ncol = G) #nxG posterior probability matrix initiation
+  
+  #Calculating the numerator of each element in the posterior probability matrix.
+  for(i in 1:n){
+    for(k in 1:G){
+      mvn = exp(-1/2 * (as.matrix(data[i, ] - para$mean[ ,k])) %*% 
+                  as.matrix(solve(para$Sigma), ncol = 2, nrow = 2) %*% 
+                  t(as.matrix(data[i,] - para$mean[,k])))
+      P[i,k] = para$prob[k] * mvn
+    }
+  }
+  
+  #Dividing by the denominator value (Sum of all P[i,k] in k=1:G)
+  P = P / rowSums(P)
+  
+  return(P)
+}
+
+Mstep <- function(data, G, para, post.prob){
+  n = nrow(data)
+  P = rep(0, G) #Updated mixing probability vector initiation
+  mu = matrix(rep(0, 2*G), nrow = 2, ncol = G) #2xG Updated mean matrix initiation
+  Sigma = matrix(rep(0, 4), nrow = 2, ncol = 2) #2x2 Updated var-cov matrix initiation
+  
+  #Calculation for updated p_k (t+1)
+  P = colSums(post.prob) / n
+  
+  #Calculation for updated mu_k (t+1)
+  mu = t(as.matrix(post.prob, nrow = n, ncol = G)) %*% 
+    as.matrix(data, nrow = n, ncol = G)
+  
+  mu = t(mu / colSums(post.prob))
+  
+  #Calculation for updated Sigma (t+1)
+  for(k in 1:G){
+    Sigma = Sigma + (1 / n) * ((t(data) - mu[ ,k]) %*% diag(post.prob[ ,k]) %*%
+      t(t(data) - mu[ ,k]))
+  }
+  
+  #Returning list of updated parameters.
+  para_new <- list(prob = P, mean = mu, Sigma = Sigma, loglik = para$loglik)
+  return(para_new)
+}
+
+loglik <- function(data, G, para){
+  
+  loglike = 0 #Initializing the log-likelihood value.
+  n = nrow(data)
+  l = matrix(rep(0, n*G), nrow = n, ncol = G) #nxG likelihood value matrix
+  
+  for(i in 1:n){
+    for(k in 1:G){
+      mvn = exp(-1/2 * (as.matrix(data[i, ] - para$mean[ ,k])) %*% 
+                  as.matrix(solve(para$Sigma), ncol = 2, nrow = 2) %*% 
+                  t(as.matrix(data[i,] - para$mean[,k])))
+      l[i,k] = para$prob[k] * mvn
+    }
+  }
+  
+  #Calculating log-likelihood
+  loglike = sum(log(rowSums(l)) - log(2*pi) - 0.5 * log(det(para$Sigma)))
+  
+  return(as.numeric(loglike))
+}
+
+myEM <- function(data, itmax, G, para){
+  # itmax: number of of iterations
+  # G:     number of components
+  # para:  list of (prob, mean, Sigma, loglik)
+  
+  for(t in 1:itmax){
+    post.prob <- Estep(data, G, para)
+    para <- Mstep(data, G, para, post.prob)
+  }
+  
+  para$loglik = loglik(data, G, para)   
+  
+  return(para)
+}
+```
+
+
+### Test Your Function
+
+```{r}
+options(digits = 8)
+options()$digits
+```
+
+#### Load Data
+
+```{r}
+library(mclust)
+head(faithful)
+```
+
+#### Two Clusters
+
+Compare the results returned by `myEM` and the one returned by the EM algorithm in `mclust` after 20 iterations.\
+\
+We **initialize** parameters by first randomly assigning the $n$ samples into two groups and then running one iteration of the built-in M-step.
+```{r}
+n <- nrow(faithful)
+G <- 2
+set.seed(0234)
+gID <- sample(1:G, n, replace = TRUE)
+Z <- matrix(0, n, G)
+for(k in 1:G)
+  Z[gID == k, k] <- 1 
+ini0 <- mstep(modelName="EEE", faithful , Z)$parameters
+```
+
+Here are the initial values we use for (prob, mean, Sigma).
+
+```{r}
+para0 <- list(prob = ini0$pro, mean = ini0$mean, Sigma = ini0$variance$Sigma, loglik = NULL)
+para0
+```
+
+* Output from `myEM`
+
+```{r}
+myEM(data = faithful, itmax = 20, G = G, para = para0)
+```
+
+* Output from `mclust`
+
+```{r}
+Rout <- em(modelName = "EEE", data = faithful,
+           control = emControl(eps=0, tol=0, itmax = 20), 
+           parameters = ini0)
+list(prob = Rout$para$pro, mean = Rout$para$mean, 
+     Sigma = Rout$para$variance$Sigma, 
+     loglik = Rout$loglik)
+```
+
+#### Three Clusters
+
+Similarly, set $G=3$, then compare the result returned by `myEM` and the one returned by the EM Algorithm from `mclust` after 20 iterations.
+
+```{r}
+n <- nrow(faithful)
+G <- 3
+set.seed(0234)
+gID <- sample(1:G, n, replace = TRUE)
+Z <- matrix(0, n, G)
+for(k in 1:G)
+  Z[gID == k, k] <- 1 
+ini0 <- mstep(modelName="EEE", faithful , Z)$parameters
+
+para0 <- list(prob = ini0$pro, mean = ini0$mean, Sigma = ini0$variance$Sigma, loglik = NULL)
+para0
+```
+
+* Output from `myEM`
+
+```{r}
+myEM(data = faithful, itmax = 20, G = G, para = para0)
+```
+
+* Output from `mclust`
+
+```{r}
+Rout <- em(modelName = "EEE", data = faithful,
+           control = emControl(eps=0, tol=0, itmax = 20), 
+           parameters = ini0)
+list(prob = Rout$para$pro, mean = Rout$para$mean, 
+     Sigma = Rout$para$variance$Sigma, 
+     loglik = Rout$loglik)
+```
+
+--------
+
+## Part II: The Baum-Welch Algorithm
+
+```{r}
+myBW = function(x, para, n.iter = 100){
+  # Input:
+  # x: T-by-1 observation sequence
+  # para: initial parameter value
+  # Output updated para value (A and B; we do not update w)
+  
+  for(i in 1:n.iter){
+    para = BW.onestep(x, para)
+  }
+  return(para)
+}
+```
+```{r}
+BW.onestep = function(x, para){
+  # Input: 
+  # x: T-by-1 observation sequence
+  # para: mx, mz, and current para values for
+  #    A: initial estimate for mz-by-mz transition matrix
+  #    B: initial estimate for mz-by-mx emission matrix
+  #    w: initial estimate for mz-by-1 initial distribution over Z_1
+  # Output the updated parameters after one iteration
+  # We DO NOT update the initial distribution w
+  
+  T = length(x)
+  mz = para$mz
+  mx = para$mx
+  A = para$A
+  B = para$B
+  w = para$w
+  alp = forward.prob(x, para)
+  beta = backward.prob(x, para)
+  
+  myGamma = array(0, dim=c(mz, mz, T-1))
+  #######################################
+  for(t in 1:T-1){
+      denominator = ((alp[t,] %*% A) * B[,x[t+1]]) %*% matrix(beta[t+1,]) 
+      for(s in 1:mz){
+        numerator = alp[t,s] * A[s,] * B[,x[t+1]] * beta[t+1,]
+        myGamma[s,,t]=numerator/as.vector(denominator)
+      }
+    }
+  #######################################
+
+  # M-step for parameter A
+  #######################################
+  myGamma.all.t = rowSums(myGamma, dims = 2)
+  A = myGamma.all.t/rowSums(myGamma.all.t)
+  #######################################
+  
+  # M-step for parameter B
+  #######################################
+  myGamma1 = apply(myGamma, c(1, 3), sum)  
+  myGamma1 = cbind(myGamma1, colSums(myGamma[, , T-1]))
+  for(j in 1:ncol(B)){
+    B[, j] = rowSums(myGamma1[, which(x==j)])
+  }
+  B = B/rowSums(B)
+  #######################################
+  
+  para$A = A
+  para$B = B
+  return(para)
+}
+```
+```{r}
+forward.prob = function(x, para){
+  # Output the forward probability matrix alp 
+  # alp: T by mz, (t, i) entry = P(x_{1:t}, Z_t = i)
+  T = length(x)
+  mz = para$mz
+  A = para$A
+  B = para$B
+  w = para$w
+  alp = matrix(0, T, mz)
+  
+  # fill in the first row of alp
+  alp[1, ] = w * B[, x[1]]
+  # Recursively compute the remaining rows of alp
+  for(t in 2:T){
+    tmp = alp[t-1, ] %*% A
+    alp[t, ] = tmp * B[, x[t]]
+    }
+  return(alp)
+}
+
+backward.prob = function(x, para){
+  # Output the backward probability matrix beta
+  # beta: T by mz, (t, i) entry = P(x_{1:t}, Z_t = i)
+  T = length(x)
+  mz = para$mz
+  A = para$A
+  B = para$B
+  w = para$w
+  beta = matrix(1, T, mz)
+
+  # The last row of beta is all 1.
+  # Recursively compute the previous rows of beta
+  for(t in (T-1):1){
+    tmp = as.matrix(beta[t+1, ] * B[, x[t+1]])  # make tmp a column vector
+    beta[t, ] = t(A %*% tmp)
+    }
+  return(beta)
+}
+```
+
+### The Viterbi Algorithm
+
+```{r}
+myViterbi = function(x, para){
+  # Output: most likely sequence of Z (T-by-1)
+  T = length(x)
+  mz = para$mz
+  A = para$A
+  B = para$B
+  w = para$w
+  log.A = log(A)
+  log.w = log(w)
+  log.B = log(B)
+  
+  # Compute delta (in log-scale)
+  delta = matrix(0, T, mz) 
+  # fill in the first row of delta
+  delta[1, ] = log.w + log.B[, x[1]]
+  
+  #######################################
+  ## YOUR CODE: 
+  ## Recursively compute the remaining rows of delta
+  for(i in 2:T){
+    delta[i, 1] = max(delta[i-1 , ] + log.A[, 1]) + log.B[1, x[i]]
+    delta[i, 2] = max(delta[i-1 , ] + log.A[, 2]) + log.B[2, x[i]]
+  }
+  #######################################
+  
+  # Compute the most prob sequence Z
+  Z = rep(0, T)
+  # start with the last entry of Z
+  Z[T] = which.max(delta[T, ])
+  
+  #######################################
+  ## YOUR CODE: 
+  ## Recursively compute the remaining entries of Z
+  for(j in 1:(length(x) - 1)){
+    Z[T-j] = which.max(delta[T-j, ] + log.A[ ,Z[T-j+1]])
+  }
+  #######################################
+  
+  return(Z)
+}
+```
+
+### Test Your Function
+
+#### Your Results
+
+```{r}
+data = scan("~/Classes/STAT542 (UIUC)/Data Sets/coding4_part2_data.txt")
+
+mz = 2
+mx = 3
+ini.w = rep(1, mz); ini.w = ini.w / sum(ini.w)
+ini.A = matrix(1, 2, 2); ini.A = ini.A / rowSums(ini.A)
+ini.B = matrix(1:6, 2, 3); ini.B = ini.B / rowSums(ini.B)
+ini.para = list(mz = 2, mx = 3, w = ini.w,
+                A = ini.A, B = ini.B)
+
+myout = myBW(data, ini.para, n.iter = 100)
+myout.Z = myViterbi(data, myout)
+myout.Z[myout.Z==1] = 'A'
+myout.Z[myout.Z==2] = 'B'
+```
+
+#### Result From `HMM`
+
+```{r}
+library(HMM)
+hmm0 =initHMM(c("A", "B"), c(1, 2, 3),
+              startProbs = ini.w,
+              transProbs = ini.A, 
+              emissionProbs = ini.B)
+Rout = baumWelch(hmm0, data, maxIterations=100, delta=1E-9, pseudoCount=0)
+Rout.Z = viterbi(Rout$hmm, data)
+```
+
+* Compare estimates for transition prob matrix A.
+
+```{r}
+myout$A
+Rout$hmm$transProbs
+```
+
+* Compare estimates for transition prob matrix B.
+
+```{r}
+myout$B
+Rout$hmm$emissionProbs
+```
+
+* Compare the most probable Z sequence.
+
+```{r}
+cbind(Rout.Z, myout.Z)[c(1:10, 180:200), ]
+sum(Rout.Z != myout.Z)
+```

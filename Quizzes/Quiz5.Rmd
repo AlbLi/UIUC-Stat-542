@@ -1,0 +1,67 @@
+---
+title: "Quiz 5"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)
+library(splines)
+```
+
+## 8-13
+
+```{r}
+attach(Boston)
+#8
+M8 = lm(nox ~ poly(dis, 3), data = Boston)
+sum((Boston$nox - M8$fitted.values)^2)
+#9
+predict(M8, newdata = data.frame(dis = 6))
+#10
+summary(M8)
+#11
+M11 = lm(nox ~ poly(dis, 4), data = Boston)
+sum((Boston$nox - M11$fitted.values)^2)
+#12
+predict(M11, newdata = data.frame(dis = 6))
+#13
+summary(M11)
+```
+
+## 14
+
+```{r}
+#Model
+myfit1 = lm(nox ~ bs(dis, df=3), data=Boston)
+summary(myfit1)
+#A
+summary(lm(nox ~ bs(dis, knots=median(dis)), data=Boston))
+#B (Yes)
+summary(lm(nox ~ poly(dis, 3), data=Boston))
+#C (Yes)
+summary(lm(nox ~ bs(dis, df= 4, intercept=TRUE), data=Boston))
+#D
+summary(lm(nox ~ bs(dis, knots=quantile(dis, prob=c(0.25, 0.5, 0.75))), data=Boston))
+#E
+summary(lm(nox ~ bs(dis, df= 5, intercept=TRUE), data=Boston))
+```
+
+## 15
+
+```{r}
+#Model
+myfit2 = lm(nox ~ bs(dis, df=4), data=Boston)
+summary(myfit2)
+#A
+summary(lm(nox ~ bs(dis, knots=median(dis)), data=Boston))
+#B
+summary(lm(nox ~ poly(dis, 3), data=Boston))
+#C
+summary(lm(nox ~ bs(dis, df= 4, intercept=TRUE), data=Boston))
+#D
+summary(lm(nox ~ bs(dis, knots=quantile(dis, prob=c(0.25, 0.5, 0.75))), data=Boston))
+#E
+summary(lm(nox ~ bs(dis, df= 5, intercept=TRUE), data=Boston))
+```
+

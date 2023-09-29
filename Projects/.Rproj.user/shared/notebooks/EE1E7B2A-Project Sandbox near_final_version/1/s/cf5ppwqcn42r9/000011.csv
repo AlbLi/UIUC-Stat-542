@@ -1,0 +1,5 @@
+"0","#Determining Optimal Frequencies"
+"0","freq = data.frame(smooth$freq, smooth$spec)"
+"0","freq = freq %>% rename(Frequency = ""smooth.freq"") %>% rename(Spectrum = ""smooth.spec"") %>%"
+"0","        arrange(desc(Spectrum)) %>% filter(Spectrum >= 15000) %>% mutate(Cycle_Days = 1/Frequency)"
+"0","freq"

@@ -1,0 +1,129 @@
+---
+title: "Stat 542 Project 4"
+author: "Albert Li"
+date: "2022-12-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+install.packages("recommenderlab")
+```
+
+```{r}
+library(recommenderlab)
+myurl = "https://liangfgithub.github.io/MovieData/"
+ratings = read.csv(paste0(myurl, 'ratings.dat?raw=true'), 
+                   sep = ':',
+                   colClasses = c('integer', 'NULL'), 
+                   header = FALSE)
+colnames(ratings) = c('UserID', 'MovieID', 'Rating', 'Timestamp')
+i = paste0('u', ratings$UserID)
+j = paste0('m', ratings$MovieID)
+x = ratings$Rating
+tmp = data.frame(i, j, x, stringsAsFactors = T)
+Rmat = sparseMatrix(as.integer(tmp$i), as.integer(tmp$j), x = tmp$x)
+rownames(Rmat) = levels(tmp$i)
+colnames(Rmat) = levels(tmp$j)
+Rmat = new('realRatingMatrix', data = Rmat)
+
+train = Rmat[1:500, ]
+test = Rmat[501, ]
+```
+
+```{r}
+#Creating mypred with UBCF method
+train = Rmat[1:500, ] 
+test = Rmat[501, ] 
+data = as(train, "matrix") 
+user.means = rowMeans(data, na.rm = TRUE) 
+data = data - user.means
+newdata = as(Rmat[501, ], "matrix")
+newuser.mean = mean(newdata, na.rm = TRUE) 
+newdata = newdata - newuser.mean
+
+```
+
+# UBCF Part
+```{r}
+sim = proxy::simil(data, newdata, method = "cosine") #using cosine method to center the dataset
+sim = (1 + sim)/2 #since the review is having a range of [-1,1], thus, we use this to make it all non-negative
+
+ids<-order(sim,decreasing=TRUE)[1:20] #Getting the top 20 ranked by the similarity, which is consistent with the parameter used in the UBCF recommenderlab function below
+
+sim[-ids]<-NA #Assigning all ratings except the top 20 mentioned above to NAs
+```
+
+
+```{r}
+
+num = colSums(data * as.vector(sim),na.rm = TRUE)
+den = colSums((!is.na(data)) * as.vector(sim),na.rm = TRUE)
+mypred=num/den
+mypred=mypred+newuser.mean #Since we removed the mean before when doing the cosine method, we need to add back the mean
+
+mypred[is.nan(mypred)]<-NA #Assigning all inf values to NAs
+mypred[!is.na(newdata)]<-NA
+
+
+```
+
+
+```{r}
+recommender.UBCF <- Recommender(train, method = "UBCF",
+                                parameter = list(normalize = 'center', 
+                                                 method = 'Cosine', 
+                                                 nn = 20))
+
+p.UBCF <- predict(recommender.UBCF, test, type="ratings")
+p.UBCF <- as.numeric(as(p.UBCF, "matrix"))
+```
+
+```{r}
+sum(is.na(p.UBCF) != is.na(mypred)) ### should be zero
+max(abs(p.UBCF - mypred), na.rm = TRUE)  ### should be less than 1e-06 
+```
+
+
+# IBCF Part
+
+```{r}
+sim2 = proxy::simil(data, by_rows=FALSE, method = "cosine") 
+sim2<-0.5*(sim2+1) #change the range into [0,1]
+sim2<-as.matrix(sim2)  #Get the similarity matrix with cosine normalize method
+
+for(i in 1:dim(sim2)[2]){
+  temp_id<-tail(order(sim2[,i],decreasing=FALSE,na.last=FALSE),30)
+  sim2[-temp_id,i]<-NA
+}
+newdata = as(Rmat[501, ], "matrix")#Re-assign the newdata with the matrix, so the mean is not removed
+
+num = colSums((sim2)*as.vector(newdata),na.rm = TRUE)
+den = colSums((sim2)*as.vector(!is.na(newdata))  ,na.rm = TRUE)
+
+mypred=num/den
+mypred[is.nan(mypred)]<-NA  #Assigning all inf values to NAs
+mypred[!is.na(newdata)]<-NA #Assigning all existing reviews to NAs
+
+```
+
+
+```{r}
+recommender.IBCF <- Recommender(train, method = "IBCF",
+                                parameter = list(normalize = 'center', 
+                                                 method = 'Cosine', 
+                                                 k = 30))
+
+p.IBCF <- predict(recommender.IBCF, test, type="ratings")
+p.IBCF <- as.numeric(as(p.IBCF, "matrix"))
+
+## first output: should be less than 10
+sum(is.na(p.IBCF) != is.na(mypred))  
+
+## second output: should be less than 10%
+mydiff = abs(p.IBCF - mypred)
+sum(mydiff[!is.na(mydiff)] > 1e-6) / sum(!is.na(mydiff)) 
+```
+
